@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#ffffff">
+    <title>投資收益管家</title>
+    
+    <!-- 1. 樣式庫 (Tailwind) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- 2. 核心函式庫 -->
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <!-- PropTypes -->
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
+    <!-- Recharts -->
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.10.3/Recharts.min.js"></script>
+    <!-- Babel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+
+    <style>
+        body { -webkit-tap-highlight-color: transparent; user-select: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .safe-top { padding-top: env(safe-area-inset-top); }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+        input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .border-dashed-anim { background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='8' ry='8' stroke='%23CBD5E1FF' stroke-width='2' stroke-dasharray='8%2c 8' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e"); }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 h-screen flex flex-col overflow-hidden">
+
+    <div id="loader" class="fixed inset-0 flex flex-col items-center justify-center bg-white z-50">
+        <div class="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+        <p class="text-slate-500 font-bold">正在啟動 v3.8.2...</p>
+    </div>
+
+    <div id="root" class="flex-1 flex flex-col h-full overflow-hidden"></div>
+
+    <script type="text/babel">
+        (function() {
+            try {
+                const APP_VERSION = "v3.8.2 (Ref Fix)";
+                const { useState, useEffect, useMemo, useRef } = React;
+                const R = window.Recharts || {};
+                const { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell, ReferenceLine, Dot } = R;
+
+                // --- 1. 金融運算核心 (XIRR) ---
+                function calculateXIRR(values, dates, guess = 0.1) {
+                    if (values.length !== dates.length || values.length === 0) return 0;
+                    let hasPos = false, hasNeg = false;
+                    for (let v of values) { if (v > 0) hasPos = true; if (v < 0) hasNeg = true; }
+                    if (!hasPos || !hasNeg) return 0;
+
+                    const tol = 1e-6; const maxIter = 100; let x0 = guess;
+                    const t0 = new Date(dates[0]).getTime();
+                    const durs = dates.map(d => (new Date(d).getTime() - t0) / 31536000000);
+
+                    for (let i = 0; i < maxIter; i++) {
+                        let fValue = 0, fDerivative = 0;
+                        for (let j = 0; j < values.length; j++) {
+                            const v = values[j]; const d = durs[j]; const base = 1 + x0;
+                            if (base <= 0) { x0 = 0.01; break; } 
+                            fValue += v / Math.pow(base, d);
+                            fDerivative += -d * v / Math.pow(base, d + 1);
+                        }
+                        if (Math.abs(fValue) < tol) return x0;
+                        if (Math.abs(fDerivative) < tol) break;
+                        const newX = x0 - fValue / fDerivative;
+                        if (Math.abs(newX - x0) < tol) return newX;
+                        x0 = newX;
+                    }
+                    return x0;
+                }
+
+                // --- 歷史數據 (Fallback) ---
+                const HISTORY_0050 = {
+                    "2019-01": 72.5, "2019-12": 93.0, "2020-12": 116.0, "2021-12": 141.0,
+                    "2022-12": 110.5, "2023-12": 133.0, "2024-06": 175.0, "2024-12": 195.0, "2025-01": 200.0, "2025-12": 240.0
+                };
+                const HISTORY_TAIEX = {
+                    "2019-01": 9932, "2019-12": 11997, "2020-12": 14732, "2021-12": 18218,
+                    "2022-12": 14137, "2023-12": 17930, "2024-12": 22500, "2025-01": 23000, "2025-12": 26000
+                };
+                
+                const getHistoryEstimate = (dateStr, type) => {
+                    const year = parseInt(dateStr?.substring(0, 4) || new Date().getFullYear());
+                    if (type === '0050') return year >= 2025 ? 210 : 150;
+                    if (type === 'taiex') return year >= 2025 ? 23000 : 18000;
+                    return 100;
+                };
+
+                // --- UI Icons ---
+                const Icon = ({ d, size = 24, className = "" }) => (
+                    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                        {Array.isArray(d) ? d.map((p, i) => <path key={i} d={p} />) : <path d={d} />}
+                    </svg>
+                );
+                
+                const ICON_PATHS = {
+                    TrendingUp: ["M23 6L13.5 15.5L8.5 10.5L1 18", "M17 6H23V12"], 
+                    Trash2: ["M3 6H21", "M19 6V20C19 21.1 18.1 22 17 22H7C5.9 22 5 21.1 5 20V6", "M8 6V4C8 2.9 8.9 2 10 2H14C15.1 2 16 2.9 16 4V6", "M10 11V17", "M14 11V17"],
+                    Save: ["M19 21H5C3.9 21 3 20.1 3 19V5C3 3.9 3.9 3 5 3H16L21 8V19C21 20.1 20.1 21 19 21Z", "M17 21V13H7V21", "M7 3V8H15"],
+                    BarChart2: ["M18 20V10", "M12 20V4", "M6 20V14"],
+                    Sparkles: ["M12 3L10.088 8.736L4.352 10.648L10.088 12.56L12 18.296L13.912 12.56L19.648 10.648L13.912 8.736L12 3Z"],
+                    Loader2: ["M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3"],
+                    Database: ["M12 5C16.97 5 21 3.66 21 2C21 0.34 16.97 -1 12 -1C7.03 -1 3 0.34 3 2C3 3.66 7.03 5 12 5Z", "M21 12C21 13.66 16.97 15 12 15C7.03 15 3 13.66 3 12", "M3 5V19C3 20.66 7.03 22 12 22C16.97 22 21 20.66 21 19V5"],
+                    Check: ["M20 6L9 17L4 12"],
+                    X: ["M18 6L6 18", "M6 6L18 18"],
+                    Download: ["M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15", "M7 10L12 15L17 10", "M12 15V3"],
+                    Upload: ["M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15", "M17 8L12 3L7 8", "M12 3V15"],
+                    AlertTriangle: ["M10.29 3.86L1.82 18C1.64537 18.3024 1.55296 18.6453 1.55199 18.9945C1.55103 19.3437 1.64155 19.6871 1.81442 19.9905C1.98729 20.2939 2.23659 20.5467 2.5377 20.7239C2.8388 20.9011 3.18126 20.9967 3.53 21H20.47C20.8187 20.9967 21.1612 20.9011 21.4623 20.7239C21.7634 20.5467 22.0127 20.2939 22.1856 19.9905C22.3584 19.6871 22.449 19.3437 22.448 18.9945C22.447 18.6453 22.3546 18.3024 22.18 18L13.71 3.86C13.5317 3.56611 13.2807 3.32312 12.9812 3.15449C12.6817 2.98587 12.3437 2.89728 12 2.89728C11.6563 2.89728 11.3183 2.98587 11.0188 3.15449C10.7193 3.32312 10.4683 3.56611 10.29 3.86V3.86Z", "M12 9V13", "M12 17H12.01"],
+                    Smartphone: ["M5 2H19C20.1 2 21 2.9 21 4V20C21 21.1 20.1 22 19 22H5C3.9 22 3 21.1 3 20V4C3 2.9 3.9 2 5 2Z", "M12 18H12.01"],
+                    Maximize: ["M8 3H5C4.46957 3 3.96086 3.21071 3.58579 3.58579C3.21071 3.96086 3 4.46957 3 5V8", "M16 3H19C19.5304 3 20.0391 3.21071 20.4142 3.58579C20.7893 3.96086 21 4.46957 21 5V8", "M21 16V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H16", "M8 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V16"],
+                    Minimize: ["M8 3V6H3", "M21 8H18V3", "M21 16H18V21", "M3 16H6V21"],
+                    Eye: ["M1 12S5 4 12 4S23 12 23 12S19 20 12 20S1 12 1 12Z", "M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z"],
+                    EyeOff: ["M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94", "M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 012.16 3.19", "M1 1L23 23"],
+                    PieChart: ["M21.21 15.89A10 10 0 118 2.83", "M22 12A10 10 0 0012 2V12H22Z"],
+                    Image: ["M21 19V5C21 3.9 20.1 3 19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19ZM8.5 13.5L11 16.5L14.5 12L19 18H5L8.5 13.5Z"],
+                    Activity: ["M22 12h-4l-3 9L9 3l-3 9H2"],
+                    RefreshCw: ["M23 4v6h-6", "M1 20v-6h6", "M3.51 9a9 9 0 0 1 14.85-3.36L23 10", "M1 14l4.64 4.36A9 9 0 0 0 20.49 15"],
+                    Briefcase: ["M20 7h-4V4c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v3H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zM10 4h4v3h-4V4z"],
+                    CreditCard: ["M21 4H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H3V12h18v6zM3 8V6h18v2H3z"],
+                    Info: ["M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z", "M12 16V12", "M12 8H12.01"],
+                    Link: ["M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71", "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"],
+                    Edit2: ["M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"]
+                };
+
+                const Icons = {};
+                Object.keys(ICON_PATHS).forEach(key => Icons[key] = (props) => <Icon d={ICON_PATHS[key]} {...props} />);
+                const { TrendingUp, Trash2, Save, BarChart2, Sparkles, Loader2, Database, Check, X, Download, Upload, AlertTriangle, Smartphone, Maximize, Minimize, Eye, EyeOff, PieChart: PieIcon, Image: ImageIcon, Activity, RefreshCw, Briefcase, CreditCard, Info, Link: LinkIcon, Edit2 } = Icons;
+
+                const Card = ({ children, className = "" }) => <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className}`}>{children}</div>;
+                const Button = ({ onClick, children, variant = "primary", className = "", disabled = false, size = "md" }) => {
+                    const baseStyle = "rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transform select-none";
+                    const sizes = { sm: "px-3 py-1.5 text-sm", md: "px-4 py-3" };
+                    const variants = {
+                        primary: "bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800",
+                        secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200 active:bg-slate-300",
+                        danger: "bg-red-50 text-red-600 hover:bg-red-100 active:bg-red-200",
+                        outline: "border border-slate-300 text-slate-600 hover:bg-slate-50",
+                        magic: "bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md hover:opacity-90",
+                        warning: "bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-200",
+                        ghost: "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
+                    };
+                    return <button onClick={onClick} className={`${baseStyle} ${sizes[size]} ${variants[variant]} ${className}`} disabled={disabled}>{children}</button>;
+                };
+                const Input = ({ label, value, onChange, type = "text", placeholder = "" }) => (
+                    <div className="flex flex-col gap-1 w-full">{label && <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</label>}<input type={type} value={value} onChange={onChange} placeholder={placeholder} className="border border-slate-300 rounded-lg px-3 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full text-base bg-white" /></div>
+                );
+                const Select = ({ label, value, onChange, options }) => (
+                    <div className="flex flex-col gap-1 w-full">{label && <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</label>}<div className="relative"><select value={value} onChange={onChange} className="border border-slate-300 rounded-lg px-3 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full text-base bg-white">{options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div></div>
+                );
+
+                const App = () => {
+                    const safeLoad = (key, def) => { try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : def; } catch { return def; } };
+                    const [settings, setSettings] = useState(() => safeLoad('inv_settings', { benchmarkName: '0050(還原)', apiKey: '', lastBackupDate: null }));
+                    const [accounts, setAccounts] = useState(() => safeLoad('inv_accounts', [{ id: 'a1', name: '帳號 A', color: '#3b82f6' }]));
+                    const [records, setRecords] = useState(() => safeLoad('inv_records', []));
+                    const [data0050, setData0050] = useState(() => safeLoad('inv_benchmark_0050', {}));
+                    const [dataTaiex, setDataTaiex] = useState(() => safeLoad('inv_benchmark_taiex', {}));
+
+                    const [activeTab, setActiveTab] = useState('dashboard');
+                    const [dashboardMode, setDashboardMode] = useState('profit'); 
+                    const [benchmarkType, setBenchmarkType] = useState('0050'); 
+                    const [timeRange, setTimeRange] = useState('ALL');
+                    const [isFullscreen, setIsFullscreen] = useState(false);
+                    const [notification, setNotification] = useState(null);
+                    const [modalType, setModalType] = useState(null);
+                    const [showBackupAlert, setShowBackupAlert] = useState(false);
+                    const [isPrivacyMode, setIsPrivacyMode] = useState(false);
+                    const [isFetchingBenchmark, setIsFetchingBenchmark] = useState(false);
+                    
+                    const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0]);
+                    const [selectedAccount, setSelectedAccount] = useState(accounts.length>0 ? accounts[0].id : '');
+                    const [transactionType, setTransactionType] = useState('update'); // 'update' | 'deposit' | 'withdraw'
+                    const [stockValInput, setStockValInput] = useState(''); // 證券市值
+                    const [cashValInput, setCashValInput] = useState(''); // 現金餘額
+                    const [flowAmtInput, setFlowAmtInput] = useState(''); // 存提金額
+                    const [benchmarkInput, setBenchmarkInput] = useState('');
+                    
+                    const [isAiProcessing, setIsAiProcessing] = useState(false);
+                    const [pasteContent, setPasteContent] = useState('');
+                    const [aiImage, setAiImage] = useState(null); 
+                    const [aiError, setAiError] = useState(null);
+                    const [importFile, setImportFile] = useState(null);
+
+                    const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6366f1'];
+
+                    // Effects
+                    useEffect(() => { try{localStorage.setItem('inv_accounts', JSON.stringify(accounts));}catch{} }, [accounts]);
+                    useEffect(() => { try{localStorage.setItem('inv_records', JSON.stringify(records));}catch{} }, [records]);
+                    useEffect(() => { try{localStorage.setItem('inv_settings', JSON.stringify(settings));}catch{} }, [settings]);
+                    useEffect(() => { try{localStorage.setItem('inv_benchmark_0050', JSON.stringify(data0050));}catch{} }, [data0050]);
+                    useEffect(() => { try{localStorage.setItem('inv_benchmark_taiex', JSON.stringify(dataTaiex));}catch{} }, [dataTaiex]);
+                    useEffect(() => { if(accounts.length>0 && !accounts.find(a=>a.id===selectedAccount)) setSelectedAccount(accounts[0].id); }, [accounts, selectedAccount]);
+                    useEffect(() => { const h=()=>setIsFullscreen(!!document.fullscreenElement); document.addEventListener("fullscreenchange",h); return ()=>document.removeEventListener("fullscreenchange",h); }, []);
+                    useEffect(() => { if(records.length===0)return; const last=settings.lastBackupDate?new Date(settings.lastBackupDate):null; if(!last||(new Date()-last>30*86400000)) setShowBackupAlert(true); else setShowBackupAlert(false); }, [settings.lastBackupDate, records.length]);
+                    useEffect(() => { document.getElementById('loader').style.display='none'; }, []);
+
+                    // Auto-Fill Logic
+                    useEffect(() => {
+                        if (!selectedAccount || !entryDate) return;
+                        
+                        const sortedRecs = [...records].sort((a,b)=>new Date(a.date)-new Date(b.date));
+                        let prevRec = records.find(r => r.date === entryDate && r.accountId === selectedAccount);
+                        if (!prevRec) prevRec = sortedRecs.filter(r => r.accountId === selectedAccount && r.date < entryDate).pop();
+                        
+                        const prevStock = prevRec && prevRec.stockValue !== undefined ? prevRec.stockValue : (prevRec ? prevRec.marketValue : 0);
+                        const prevCash = prevRec && prevRec.cashValue !== undefined ? prevRec.cashValue : 0;
+
+                        if (stockValInput === '') setStockValInput(prevStock.toString());
+                        if (cashValInput === '') setCashValInput(prevCash.toString());
+                        
+                    }, [selectedAccount, entryDate, records]); 
+
+                    // Fetch Logic
+                    const fetchBenchmarks = async (force = false) => {
+                        if (!force && Object.keys(data0050).length > 100 && Object.keys(dataTaiex).length > 100) return;
+                        setIsFetchingBenchmark(true);
+                        try {
+                            const url0050 = "https://corsproxy.io/?https://query1.finance.yahoo.com/v8/finance/chart/0050.TW?interval=1d&range=5y&events=div|split";
+                            const res0050 = await fetch(url0050);
+                            if (res0050.ok) {
+                                const json = await res0050.json();
+                                const result = json.chart.result[0];
+                                const adjClose = result.indicators.adjclose[0].adjclose;
+                                const close = result.indicators.quote[0].close;
+                                const timestamps = result.timestamp;
+                                const newMap = { ...data0050 };
+                                timestamps.forEach((t, i) => {
+                                    const p = adjClose[i] || close[i];
+                                    if (p) newMap[new Date(t*1000).toISOString().split('T')[0]] = p;
+                                });
+                                setData0050(newMap);
+                            }
+
+                            const urlTaiex = "https://corsproxy.io/?https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII?interval=1d&range=5y";
+                            const resTaiex = await fetch(urlTaiex);
+                            if (resTaiex.ok) {
+                                const json = await resTaiex.json();
+                                const result = json.chart.result[0];
+                                const quotes = result.indicators.quote[0].close;
+                                const timestamps = result.timestamp;
+                                const newMap = { ...dataTaiex };
+                                timestamps.forEach((t, i) => {
+                                    const p = quotes[i];
+                                    if (p) newMap[new Date(t*1000).toISOString().split('T')[0]] = p;
+                                });
+                                setDataTaiex(newMap);
+                            }
+
+                            if (force) showToast("資料庫更新完成");
+                        } catch (e) { console.error(e); if (force) showToast("更新部分失敗"); } finally { setIsFetchingBenchmark(false); }
+                    };
+                    useEffect(() => { fetchBenchmarks(); }, []);
+
+                    // Helper to get benchmark value based on type
+                    const getBenchmarkValue = (dateStr, type = benchmarkType) => {
+                        if (!dateStr) return null;
+                        const db = type === '0050' ? data0050 : dataTaiex;
+                        if (db[dateStr]) return db[dateStr];
+                        const d = new Date(dateStr);
+                        for (let i = 0; i < 7; i++) {
+                            d.setDate(d.getDate() - 1);
+                            const prevDate = d.toISOString().split('T')[0];
+                            if (db[prevDate]) return db[prevDate];
+                        }
+                        return null; 
+                    };
+
+                    useEffect(()=>{ 
+                        const val = getBenchmarkValue(entryDate, '0050') || getHistoryEstimate(entryDate, '0050');
+                        if(val && !benchmarkInput) setBenchmarkInput(val.toFixed(1)); 
+                    },[entryDate, data0050]);
+
+                    const showToast = (m) => { setNotification(m); setTimeout(()=>setNotification(null), 3000); };
+                    const toggleFs = () => { if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else if(document.exitFullscreen) document.exitFullscreen().catch(()=>{}); };
+                    const fmtCur = (v) => isPrivacyMode ? '****' : new Intl.NumberFormat('zh-TW',{maximumFractionDigits:0}).format(v);
+                    const fmtPct = (v) => `${v>0?'+':''}${v?.toFixed(2)}%`;
+                    const fmtAxis = (v) => {
+                        if (isPrivacyMode) return '';
+                        if (v >= 100000000) return `${(v/100000000).toFixed(1)}億`;
+                        if (v >= 10000) return `${(v/10000).toFixed(1)}萬`; 
+                        return v;
+                    };
+                    const fmtDateAxis = (d) => d ? d.slice(2).replace(/-/g, '/') : '';
+
+                    const sortedRecs = useMemo(()=>[...records].sort((a,b)=>new Date(a.date)-new Date(b.date)), [records]);
+
+                    const accStats = useMemo(()=>{
+                        const res={}; accounts.forEach(a=>res[a.id]={name:a.name,color:a.color,currentValue:0,totalInvested:0,roi:0, totalWithdrawn:0});
+                        accounts.forEach(a=>{
+                            const rs=sortedRecs.filter(r=>r.accountId===a.id);
+                            if(rs.length===0) return;
+                            const last = rs[rs.length-1];
+                            const stock = last.stockValue !== undefined ? parseFloat(last.stockValue) : parseFloat(last.marketValue);
+                            const cash = last.cashValue !== undefined ? parseFloat(last.cashValue) : 0;
+                            const cur = stock + cash;
+                            
+                            let totalDep = 0;
+                            let totalWith = 0;
+                            
+                            const first = rs[0];
+                            const fStock = first.stockValue !== undefined ? parseFloat(first.stockValue) : parseFloat(first.marketValue);
+                            const fCash = first.cashValue !== undefined ? parseFloat(first.cashValue) : 0;
+                            const fMV = fStock + fCash;
+                            const init = fMV - parseFloat(first.cashFlow);
+                            if(init > 0) totalDep += init;
+
+                            rs.forEach(r => {
+                                const cf = parseFloat(r.cashFlow);
+                                if(cf > 0) totalDep += cf;
+                                if(cf < 0) totalWith += Math.abs(cf);
+                            });
+
+                            const profit = (cur + totalWith) - totalDep;
+                            const roi = totalDep ? (profit / totalDep) * 100 : 0;
+                            res[a.id]={...res[a.id], currentValue:cur, totalInvested:totalDep, totalWithdrawn:totalWith, roi:roi, profit: profit};
+                        });
+                        return res;
+                    },[accounts,sortedRecs]);
+
+                    const totalStats = useMemo(()=>{
+                        let v=0, i=0, p=0, w=0; 
+                        Object.values(accStats).forEach(s=>{
+                            v+=s.currentValue;
+                            i+=s.totalInvested;
+                            p+=s.profit;
+                            w+=s.totalWithdrawn;
+                        });
+                        let startDateStr = "無資料";
+                        if (sortedRecs.length > 0) startDateStr = sortedRecs[0].date;
+                        return {value:v, invested:i, withdrawn:w, pl:p, roi:i?(p/i)*100:0, startDate: startDateStr};
+                    },[accStats, sortedRecs]);
+
+                    const pieData = useMemo(()=>Object.values(accStats).filter(s=>s.currentValue>0).map((s,i)=>({name:s.name,value:s.currentValue,color:s.color||PIE_COLORS[i%PIE_COLORS.length]})),[accStats]);
+
+                    // --- Chart Data ---
+                    const chartData = useMemo(()=>{
+                        if(sortedRecs.length===0) return [];
+                        const dates=[...new Set(sortedRecs.map(r=>r.date))].sort();
+                        const res=[];
+                        const firstDate = dates[0];
+                        
+                        // Benchmark Init
+                        const startIdxVal = getBenchmarkValue(firstDate, benchmarkType) || getHistoryEstimate(firstDate, benchmarkType) || 100;
+                        
+                        let simUnits = 0;
+                        let cumUserDep = 0;
+                        let cumUserWith = 0;
+
+                        // Init Simulation
+                        accounts.forEach(a => {
+                            const rs = sortedRecs.filter(r => r.accountId === a.id && r.date === firstDate);
+                            if(rs.length > 0) {
+                                const f = rs[0];
+                                const fStock = f.stockValue !== undefined ? parseFloat(f.stockValue) : parseFloat(f.marketValue);
+                                const fCash = f.cashValue !== undefined ? parseFloat(f.cashValue) : 0;
+                                const mv = fStock + fCash;
+                                const init = mv - parseFloat(f.cashFlow);
+                                if(init > 0) {
+                                    simUnits += (init / startIdxVal);
+                                    cumUserDep += init;
+                                }
+                            }
+                        });
+
+                        dates.forEach((d)=>{
+                            let idxVal = getBenchmarkValue(d, benchmarkType) || getHistoryEstimate(d, benchmarkType);
+                            // Fallback if type is 0050 and not found in DB, use record value
+                            if (benchmarkType === '0050') {
+                                const bRec = sortedRecs.filter(r=>r.date<=d && r.benchmarkValue).pop();
+                                if (bRec && !getBenchmarkValue(d, '0050')) idxVal = parseFloat(bRec.benchmarkValue);
+                            }
+                            if(!idxVal) idxVal = startIdxVal;
+
+                            const dailyFlows = records.filter(r => r.date === d);
+                            let dayHasFlow = false;
+                            let dayFlowType = null; 
+
+                            dailyFlows.forEach(r => {
+                                const cf = parseFloat(r.cashFlow);
+                                if (cf !== 0) {
+                                    dayHasFlow = true;
+                                    if(cf > 0) {
+                                        simUnits += (cf / idxVal);
+                                        cumUserDep += cf;
+                                        dayFlowType = 'buy';
+                                    }
+                                    if(cf < 0) {
+                                        simUnits += (cf / idxVal); 
+                                        cumUserWith += Math.abs(cf);
+                                        dayFlowType = dayFlowType === 'buy' ? 'mix' : 'sell';
+                                    }
+                                }
+                            });
+
+                            let userMV = 0;
+                            accounts.forEach(a=>{
+                                const rs=sortedRecs.filter(r=>r.accountId===a.id && r.date<=d);
+                                if(rs.length>0) {
+                                    const l = rs[rs.length-1];
+                                    const s = l.stockValue !== undefined ? parseFloat(l.stockValue) : parseFloat(l.marketValue);
+                                    const c = l.cashValue !== undefined ? parseFloat(l.cashValue) : 0;
+                                    userMV += (s + c);
+                                }
+                            });
+
+                            const userProfit = (userMV + cumUserWith) - cumUserDep;
+                            const benchMV = simUnits * idxVal;
+                            const benchProfit = (benchMV + cumUserWith) - cumUserDep;
+
+                            res.push({
+                                date: d,
+                                total: userMV,
+                                adjustedTotal: userMV + cumUserWith, 
+                                netCost: cumUserDep - cumUserWith,
+                                userProfit, benchProfit, benchmarkVal: idxVal,
+                                flowMarker: dayHasFlow ? dayFlowType : null
+                            });
+                        });
+                        return res;
+                    },[sortedRecs, accounts, data0050, dataTaiex, benchmarkType]);
+
+                    const portfolioXIRR = useMemo(() => {
+                        const flows = []; const dates = [];
+                        accounts.forEach(a => {
+                            const rs = sortedRecs.filter(r => r.accountId === a.id);
+                            if(rs.length > 0) {
+                                const f = rs[0]; 
+                                const s = f.stockValue !== undefined ? parseFloat(f.stockValue) : parseFloat(f.marketValue);
+                                const c = f.cashValue !== undefined ? parseFloat(f.cashValue) : 0;
+                                const mv = s + c;
+                                const init = mv - parseFloat(f.cashFlow);
+                                if(init > 0) { flows.push(-init); dates.push(f.date); }
+                            }
+                        });
+                        records.forEach(r => {
+                            const cf = parseFloat(r.cashFlow);
+                            if(cf > 0) { flows.push(-cf); dates.push(r.date); }
+                            if(cf < 0) { flows.push(Math.abs(cf)); dates.push(r.date); }
+                        });
+                        if (totalStats.value > 0) { flows.push(totalStats.value); dates.push(new Date().toISOString().split('T')[0]); }
+                        return calculateXIRR(flows, dates);
+                    }, [records, totalStats, accounts]);
+
+                    const filteredData = useMemo(()=>{
+                        if(chartData.length===0 || timeRange==='ALL') return chartData;
+                        const last=new Date(chartData[chartData.length-1].date);
+                        const cut=new Date(last);
+                        if(timeRange==='1M') cut.setDate(last.getDate()-30);
+                        else if(timeRange==='1Y') cut.setFullYear(last.getFullYear()-1);
+                        else if(timeRange==='3Y') cut.setFullYear(last.getFullYear()-3);
+                        return chartData.filter(d=>new Date(d.date)>=cut);
+                    },[chartData,timeRange]);
+
+                    const CustomizedDot = (props) => {
+                        const { cx, cy, payload } = props;
+                        if (payload.flowMarker === 'buy') return <circle cx={cx} cy={cy} r={4} fill="#22c55e" stroke="white" strokeWidth={2} />;
+                        if (payload.flowMarker === 'sell') return <circle cx={cx} cy={cy} r={4} fill="#ef4444" stroke="white" strokeWidth={2} />;
+                        if (payload.flowMarker === 'mix') return <circle cx={cx} cy={cy} r={4} fill="#f59e0b" stroke="white" strokeWidth={2} />;
+                        return null;
+                    };
+
+                    const handleAdd = () => {
+                        if(!entryDate||!selectedAccount) return showToast("請填寫資料");
+                        let sVal = 0, cVal = 0, finalCF = 0;
+                        const bVal = benchmarkInput ? parseFloat(benchmarkInput) : (getBenchmarkValue(entryDate, '0050') || getHistoryEstimate(entryDate, '0050'));
+                        const existingRecIndex = records.findIndex(r => r.date === entryDate && r.accountId === selectedAccount);
+                        const existingRec = existingRecIndex >= 0 ? records[existingRecIndex] : null;
+
+                        if(!stockValInput && !cashValInput) return showToast("請輸入資產價值");
+                        sVal = stockValInput ? parseFloat(stockValInput) : 0;
+                        cVal = cashValInput ? parseFloat(cashValInput) : 0;
+
+                        if(transactionType !== 'update') {
+                            if(!flowAmtInput) return showToast("請輸入存提金額");
+                            const amt = parseFloat(flowAmtInput);
+                            const newFlow = transactionType === 'deposit' ? Math.abs(amt) : -Math.abs(amt);
+                            finalCF = newFlow + (existingRec ? existingRec.cashFlow : 0);
+                        } else {
+                            finalCF = existingRec ? existingRec.cashFlow : 0;
+                        }
+                        
+                        const totalMV = sVal + cVal;
+
+                        const nr = { id: existingRec ? existingRec.id : Date.now(), date: entryDate, accountId: selectedAccount, marketValue: totalMV, stockValue: sVal, cashValue: cVal, cashFlow: finalCF, benchmarkValue: bVal };
+                        setRecords(p => { const n = [...p]; if(existingRecIndex >= 0) n[existingRecIndex] = nr; else n.push(nr); return n; });
+                        
+                        setFlowAmtInput(''); 
+                        showToast("已儲存");
+                    };
+
+                    const exportJSON = () => {
+                        const d={accounts,records,settings:{...settings,lastBackupDate:new Date().toISOString()}};
+                        const a=document.createElement('a'); a.href="data:text/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(d)); a.download=`backup_${d.settings.lastBackupDate.split('T')[0]}.json`;
+                        a.click(); setSettings(d.settings); setShowBackupAlert(false); showToast("備份下載");
+                    };
+                    const handleImportExecute = () => { if(importFile) { const r=new FileReader(); r.onload=(e)=>{try{const d=JSON.parse(e.target.result); if(d.accounts)setAccounts(d.accounts);if(d.records)setRecords(d.records);if(d.settings)setSettings(d.settings);setModalType(null);showToast("還原成功");}catch{showToast("格式錯誤")}}; r.readAsText(importFile); }};
+                    
+                    const handleAI = async () => { setModalType(null); showToast("AI 功能暫停"); }; 
+                    const handleImageUpload = (e) => {}; 
+                    const handlePaste = (e) => {};
+
+                    return (
+                        <div className="max-w-lg mx-auto w-full h-full relative flex flex-col bg-slate-50">
+                            {notification && <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-full shadow-lg z-50 text-sm flex items-center gap-2 animate-fade-in"><Check size={16} className="text-green-400"/>{notification}</div>}
+                            
+                            {/* Modals */}
+                            {modalType === 'clear' && <Modal title="清空" onClose={()=>setModalType(null)}><Button onClick={()=>{setRecords([]);setAccounts([{id:'a1',name:'帳號 A',color:'#3b82f6'}]);setModalType(null);}} variant="danger" className="w-full">確認清空</Button></Modal>}
+                            {modalType === 'import' && <Modal title="還原" onClose={()=>{setModalType(null);setImportFile(null)}}><div className="flex gap-3"><Button onClick={()=>{setModalType(null);setImportFile(null)}} variant="secondary" className="flex-1">取消</Button><Button onClick={handleImportExecute} variant="primary" className="flex-1">還原</Button></div></Modal>}
+                            
+                            <header className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 py-3 safe-top flex flex-col gap-3 shadow-sm flex-shrink-0">
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-2"><span className="bg-blue-600 text-white p-1 rounded"><TrendingUp size={18}/></span><div><h1 className="font-bold text-slate-800 text-lg leading-tight">投資收益管家</h1><p className="text-[10px] text-slate-400 leading-none">{APP_VERSION}</p></div></div>
+                                    <div className="flex gap-2"><button onClick={toggleFs} className="text-slate-400 p-2 rounded-full hover:bg-slate-100 md:hidden">{isFullscreen?<Minimize size={20}/>:<Maximize size={20}/>}</button></div>
+                                </div>
+                                <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                                    {[{id:'dashboard',l:'儀表板'},{id:'input',l:'記帳'},{id:'records',l:'歷史'},{id:'settings',l:'設定'}].map(t=><button key={t.id} onClick={()=>setActiveTab(t.id)} className={`px-4 py-1.5 rounded-full whitespace-nowrap text-sm font-medium transition ${activeTab===t.id?'bg-slate-800 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}>{t.l}</button>)}
+                                </div>
+                            </header>
+
+                            <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-safe-bottom">
+                                {activeTab === 'dashboard' && (
+                                    <div className="space-y-4 animate-fade-in pb-20">
+                                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-sm space-y-1 text-slate-600">
+                                            <div className="flex justify-between items-center text-xs font-bold text-slate-400 uppercase tracking-wider mb-1"><span>獲利方程式 (Cash Flow)</span><Info size={14}/></div>
+                                            <div className="flex justify-between"><span>帳戶市值 + 已領回</span> <span className="font-mono">{fmtCur(totalStats.value + totalStats.withdrawn)}</span></div>
+                                            <div className="flex justify-between text-slate-500"><span>- 累計投入本金</span> <span className="font-mono text-slate-400">-{fmtCur(totalStats.invested)}</span></div>
+                                            <div className="border-t border-slate-300 my-1"></div>
+                                            <div className="flex justify-between items-center font-bold text-base"><span>= 淨獲利</span> <span className={totalStats.pl>=0?'text-red-500':'text-green-500'}>{fmtCur(totalStats.pl)}</span></div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <Card className="p-4 border-l-4 border-blue-500"><div className="text-xs text-slate-500">淨獲利 (Abs)</div><div className="text-xl font-bold text-slate-800">{fmtCur(totalStats.pl)}</div></Card>
+                                            <Card className={`p-4 border-l-4 ${portfolioXIRR>=0?'border-red-500':'border-green-500'}`}><div className="text-xs text-slate-500">年化報酬 (XIRR)</div><div className={`text-xl font-bold ${portfolioXIRR>=0?'text-red-600':'text-green-600'}`}>{(portfolioXIRR*100).toFixed(2)}%</div></Card>
+                                        </div>
+                                        
+                                        <Card className="p-4 h-80 flex flex-col">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <div className="flex bg-slate-100 rounded p-1">
+                                                    <button onClick={()=>setDashboardMode('profit')} className={`px-3 py-1 text-xs rounded font-medium ${dashboardMode==='profit'?'bg-white shadow text-red-600':'text-slate-500'}`}>獲利 PK</button>
+                                                    <button onClick={()=>setDashboardMode('assets')} className={`px-3 py-1 text-xs rounded font-medium ${dashboardMode==='assets'?'bg-white shadow text-blue-600':'text-slate-500'}`}>資產走勢</button>
+                                                </div>
+                                                <div className="flex gap-1 overflow-x-auto scrollbar-hide">{['1Y','3Y','ALL'].map(r=><button key={r} onClick={()=>setTimeRange(r)} className={`px-2 py-1 text-xs rounded border ${timeRange===r?'bg-slate-800 text-white border-slate-800':'border-slate-200 text-slate-500'}`}>{r}</button>)}</div>
+                                            </div>
+
+                                            {/* Benchmark Toggle */}
+                                            {dashboardMode === 'profit' && (
+                                                <div className="flex justify-center mb-2">
+                                                    <div className="bg-slate-100 p-0.5 rounded flex text-[10px]">
+                                                        <button onClick={()=>setBenchmarkType('0050')} className={`px-2 py-0.5 rounded ${benchmarkType==='0050'?'bg-white shadow font-bold text-slate-700':'text-slate-400'}`}>0050 (含息)</button>
+                                                        <button onClick={()=>setBenchmarkType('taiex')} className={`px-2 py-0.5 rounded ${benchmarkType==='taiex'?'bg-white shadow font-bold text-slate-700':'text-slate-400'}`}>大盤 (點數)</button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div className="flex-1 w-full relative">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    {dashboardMode === 'assets' ? (
+                                                        <ComposedChart data={filteredData}>
+                                                            <defs><linearGradient id="cV" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
+                                                            <XAxis dataKey="date" tickFormatter={fmtDateAxis} tick={{fontSize:10}} />
+                                                            <YAxis yAxisId="left" tickFormatter={fmtAxis} width={40} tick={{fontSize:9}} domain={['auto','auto']} />
+                                                            <YAxis yAxisId="right" orientation="right" width={40} tick={{fontSize:9, fill:'#f97316'}} domain={['auto','auto']} />
+                                                            <Tooltip formatter={(v,n)=>n.includes('指數')||n.includes('0050')?v:fmtCur(v)} labelStyle={{color:'#333'}} />
+                                                            <Legend wrapperStyle={{fontSize:'10px'}}/>
+                                                            <Area yAxisId="left" type="monotone" dataKey="total" name="帳戶現值 (左)" stroke="#3b82f6" fill="url(#cV)" strokeWidth={2} />
+                                                            <Line yAxisId="left" type="monotone" dataKey="adjustedTotal" name="還原值(含領出)" stroke="#8b5cf6" strokeDasharray="5 5" dot={false} strokeWidth={2} />
+                                                            <Line yAxisId="left" dataKey="total" name="交易點" stroke="none" dot={<CustomizedDot/>} activeDot={false} legendType="none" />
+                                                            <Line yAxisId="right" type="monotone" dataKey="benchmarkVal" name={benchmarkType==='0050'?"0050(還原)":"大盤指數"} stroke="#f97316" strokeDasharray="3 3" dot={false} />
+                                                        </ComposedChart>
+                                                    ) : (
+                                                        <LineChart data={filteredData}>
+                                                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                            <XAxis dataKey="date" tickFormatter={fmtDateAxis} tick={{fontSize:10}} />
+                                                            <YAxis tickFormatter={fmtAxis} width={40} tick={{fontSize:9}} domain={['auto','auto']} />
+                                                            <Tooltip formatter={(v)=>fmtCur(v)} labelStyle={{color:'#333'}} />
+                                                            <Legend wrapperStyle={{fontSize:'10px'}}/>
+                                                            <ReferenceLine y={0} stroke="#94a3b8" />
+                                                            <Line type="monotone" dataKey="userProfit" name="我的累計獲利" stroke="#ef4444" strokeWidth={2} dot={false} />
+                                                            <Line type="monotone" dataKey="benchProfit" name={`模擬獲利(${benchmarkType==='0050'?'0050':'大盤'})`} stroke="#64748b" strokeWidth={2} dot={false} strokeDasharray="5 5" />
+                                                        </LineChart>
+                                                    )}
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </Card>
+                                        
+                                        <Card className="p-4">
+                                            <div className="font-bold text-slate-700 mb-4 flex items-center gap-2"><PieIcon size={16}/> 資產配置</div>
+                                            <div className="h-40"><ResponsiveContainer><PieChart><Pie data={pieData} innerRadius={35} outerRadius={60} dataKey="value"><Tooltip formatter={v=>fmtCur(v)}/>{pieData.map((e,i)=><Cell key={i} fill={e.color}/>)}</Pie></PieChart></ResponsiveContainer></div>
+                                            <div className="space-y-2 text-sm">{pieData.map(d=><div key={d.name} className="flex justify-between"><div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full" style={{backgroundColor:d.color}}></span>{d.name}</div><span>{((d.value/totalStats.value)*100).toFixed(1)}%</span></div>)}</div>
+                                        </Card>
+                                    </div>
+                                )}
+                                
+                                {activeTab === 'input' && (
+                                    <Card className="p-5 space-y-5 animate-fade-in pb-20">
+                                        <div className="bg-slate-100 p-1 rounded-lg flex mb-4">
+                                            <button onClick={()=>{setTransactionType('update'); setStockValInput(''); setCashValInput(''); setFlowAmtInput('');}} className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${transactionType==='update'?'bg-white text-slate-800 shadow-sm':'text-slate-500'}`}><div className="flex items-center justify-center gap-2"><Briefcase size={16}/> 市值更新</div></button>
+                                            <button onClick={()=>{setTransactionType('deposit'); setStockValInput(''); setCashValInput(''); setFlowAmtInput('');}} className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${transactionType==='deposit'?'bg-white text-blue-600 shadow-sm':'text-slate-500'}`}><div className="flex items-center justify-center gap-2"><TrendingUp size={16}/> 存入資金</div></button>
+                                            <button onClick={()=>{setTransactionType('withdraw'); setStockValInput(''); setCashValInput(''); setFlowAmtInput('');}} className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${transactionType==='withdraw'?'bg-white text-orange-600 shadow-sm':'text-slate-500'}`}><div className="flex items-center justify-center gap-2"><CreditCard size={16}/> 領出資金</div></button>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <Input type="date" label="日期" value={entryDate} onChange={e=>setEntryDate(e.target.value)} />
+                                                <Select label="帳戶" value={selectedAccount} onChange={e=>setSelectedAccount(e.target.value)} options={accounts.map(a=>({value:a.id,label:a.name}))} />
+                                            </div>
+
+                                            <div className="bg-blue-50 p-3 rounded-lg border border-blue-200 animate-fade-in space-y-3">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <label className="text-xs font-semibold text-blue-700 uppercase tracking-wider flex items-center gap-1"><Edit2 size={12}/> 當日實際餘額 (必填)</label>
+                                                </div>
+                                                <Input label="證券市值" type="number" value={stockValInput} onChange={e=>setStockValInput(e.target.value)} placeholder="股票現值" />
+                                                <Input label="現金餘額" type="number" value={cashValInput} onChange={e=>setCashValInput(e.target.value)} placeholder="現金餘額" />
+                                                <div className="text-right text-xs text-blue-400 mt-1">總資產: {fmtCur((parseFloat(stockValInput)||0)+(parseFloat(cashValInput)||0))}</div>
+                                            </div>
+
+                                            {transactionType !== 'update' && (
+                                                <div className="pt-2 border-t border-slate-200 animate-fade-in">
+                                                    <Input label={transactionType==='deposit'?"存入金額 (Deposit)":"領出金額 (Withdraw)"} type="number" value={flowAmtInput} onChange={e=>setFlowAmtInput(e.target.value)} placeholder="僅供 XIRR 計算" />
+                                                    <p className="text-[10px] text-slate-400 mt-1">* 此金額僅用於計算報酬率，不會影響上方餘額。</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                        
+                                        <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
+                                             <div className="flex-1 mr-2">
+                                                 <Input label="0050(還原) 指數" type="number" value={benchmarkInput} onChange={e=>setBenchmarkInput(e.target.value)} placeholder={getBenchmarkValue(entryDate, '0050') || getHistoryEstimate(entryDate, '0050') || "輸入指數"} />
+                                             </div>
+                                             <Button onClick={()=>fetchBenchmarkData(true)} variant="outline" size="sm" className="mt-6 h-11" disabled={isFetchingBenchmark}>
+                                                {isFetchingBenchmark ? <Loader2 className="animate-spin" size={16}/> : <RefreshCw size={16}/>}
+                                             </Button>
+                                        </div>
+
+                                        <Button onClick={handleAdd} className="w-full mt-4 text-lg py-4 shadow-md shadow-blue-200"><Save size={20}/> 儲存紀錄</Button>
+                                    </Card>
+                                )}
+                                
+                                {activeTab === 'settings' && <div className="p-4 space-y-4"><Card className="p-4"><h3 className="font-bold mb-2">資料管理</h3><div className="flex gap-2"><Button onClick={exportJSON} variant="outline" className="flex-1">備份</Button><div className="relative flex-1"><input type="file" className="absolute inset-0 opacity-0" onChange={e=>{setImportFile(e.target.files[0]);setModalType('import')}}/><Button variant="outline" className="w-full">還原</Button></div></div><div className="pt-2 flex justify-end"><Button onClick={()=>setModalType('clear')} variant="danger" size="sm">清空</Button></div></Card></div>}
+                            </div>
+                        </div>
+                    );
+                };
+
+                const root = ReactDOM.createRoot(document.getElementById('root'));
+                root.render(<App />);
+            } catch (err) {
+                document.getElementById('loader').innerHTML = '<div class="p-4 text-center text-red-500"><p class="font-bold">系統錯誤</p><p class="text-sm">'+err.message+'</p></div>';
+                console.error(err);
+            }
+        })();
+    </script>
+</body>
+</html>
