@@ -49,36 +49,7 @@
                 const R = window.Recharts || {};
                 const { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell, ReferenceLine } = R;
 
-                // --- 內建台股大盤歷史數據 (完整補齊) ---
-                const TAIEX_HISTORY = {
-                    "2019-01": 9932, "2019-02": 10389, "2019-03": 10641, "2019-04": 10967, "2019-05": 10498, "2019-06": 10730,
-                    "2019-07": 10823, "2019-08": 10618, "2019-09": 10829, "2019-10": 11358, "2019-11": 11489, "2019-12": 11997,
-                    "2020-01": 11495, "2020-02": 11292, "2020-03": 9708, "2020-04": 10992, "2020-05": 10942, "2020-06": 11621,
-                    "2020-07": 12664, "2020-08": 12591, "2020-09": 12515, "2020-10": 12546, "2020-11": 13722, "2020-12": 14732,
-                    "2021-01": 15138, "2021-02": 15953, "2021-03": 16431, "2021-04": 17566, "2021-05": 17068, "2021-06": 17755,
-                    "2021-07": 17247, "2021-08": 17490, "2021-09": 16934, "2021-10": 16987, "2021-11": 17427, "2021-12": 18218,
-                    "2022-01": 17674, "2022-02": 17652, "2022-03": 17693, "2022-04": 16592, "2022-05": 16807, "2022-06": 14825,
-                    "2022-07": 15000, "2022-08": 15095, "2022-09": 13424, "2022-10": 12949, "2022-11": 14879, "2022-12": 14137,
-                    "2023-01": 15265, "2023-02": 15503, "2023-03": 15868, "2023-04": 15579, "2023-05": 16578, "2023-06": 16915,
-                    "2023-07": 17145, "2023-08": 16634, "2023-09": 16353, "2023-10": 16001, "2023-11": 17433, "2023-12": 17930,
-                    "2024-01": 17889, "2024-02": 18966, "2024-03": 20294, "2024-04": 20396, "2024-05": 21174, "2024-06": 23032,
-                    "2024-07": 22223, "2024-08": 22268, "2024-09": 22224, "2024-10": 22820, "2024-11": 23000, "2024-12": 23500,
-                    "2025-01": 23800, "2025-02": 24000, "2025-03": 24200
-                };
-
-                const getTaiexEstimate = (dateStr) => {
-                    if (!dateStr) return 20000;
-                    const key = dateStr.substring(0, 7); // YYYY-MM
-                    // 1. 精準對應
-                    if (TAIEX_HISTORY[key]) return TAIEX_HISTORY[key];
-                    
-                    // 2. 若找不到，找最近的年份
-                    const year = key.substring(0, 4);
-                    // 簡單 fallback: 該年找不到就用最後一筆
-                    return 20000; 
-                };
-
-                // 圖示路徑
+                // --- 圖示系統 ---
                 const ICON_PATHS = {
                     TrendingUp: ["M23 6L13.5 15.5L8.5 10.5L1 18", "M17 6H23V12"], 
                     Trash2: ["M3 6H21", "M19 6V20C19 21.1 18.1 22 17 22H7C5.9 22 5 21.1 5 20V6", "M8 6V4C8 2.9 8.9 2 10 2H14C15.1 2 16 2.9 16 4V6", "M10 11V17", "M14 11V17"],
@@ -99,7 +70,8 @@
                     EyeOff: ["M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94", "M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 012.16 3.19", "M1 1L23 23"],
                     PieChart: ["M21.21 15.89A10 10 0 118 2.83", "M22 12A10 10 0 0012 2V12H22Z"],
                     Image: ["M21 19V5C21 3.9 20.1 3 19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19ZM8.5 13.5L11 16.5L14.5 12L19 18H5L8.5 13.5Z"],
-                    Activity: ["M22 12h-4l-3 9L9 3l-3 9H2"]
+                    Activity: ["M22 12h-4l-3 9L9 3l-3 9H2"],
+                    RefreshCw: ["M23 4v6h-6", "M1 20v-6h6", "M3.51 9a9 9 0 0 1 14.85-3.36L23 10", "M1 14l4.64 4.36A9 9 0 0 0 20.49 15"]
                 };
 
                 const Icon = ({ d, size = 24, className = "" }) => (
@@ -112,7 +84,7 @@
                 Object.keys(ICON_PATHS).forEach(key => {
                     Icons[key] = (props) => <Icon d={ICON_PATHS[key]} {...props} />;
                 });
-                const { TrendingUp, Trash2, Save, BarChart2, Sparkles, Loader2, Database, Check, X, Download, Upload, AlertTriangle, Smartphone, Maximize, Minimize, Eye, EyeOff, PieChart: PieIcon, Image: ImageIcon, Activity } = Icons;
+                const { TrendingUp, Trash2, Save, BarChart2, Sparkles, Loader2, Database, Check, X, Download, Upload, AlertTriangle, Smartphone, Maximize, Minimize, Eye, EyeOff, PieChart: PieIcon, Image: ImageIcon, Activity, RefreshCw } = Icons;
 
                 // --- 2. 共用元件 ---
                 const Card = ({ children, className = "" }) => <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className}`}>{children}</div>;
@@ -140,12 +112,14 @@
                     <div className="flex flex-col gap-1 w-full">{label && <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</label>}<div className="relative"><select value={value} onChange={onChange} className="border border-slate-300 rounded-lg px-3 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full text-base bg-white appearance-none">{options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select><div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500"><svg className="fill-current h-4 w-4" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg></div></div></div>
                 );
 
-                // --- 3. App 主邏輯 ---
                 const App = () => {
                     const safeLoad = (key, def) => { try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : def; } catch { return def; } };
                     const [settings, setSettings] = useState(() => safeLoad('inv_settings', { benchmarkName: '台股加權指數', apiKey: '', lastBackupDate: null }));
                     const [accounts, setAccounts] = useState(() => safeLoad('inv_accounts', [{ id: 'a1', name: '帳號 A', color: '#3b82f6' }, { id: 'a2', name: '帳號 B', color: '#10b981' }, { id: 'a3', name: '帳號 C', color: '#f59e0b' }]));
                     const [records, setRecords] = useState(() => safeLoad('inv_records', []));
+                    
+                    // 獨立儲存大盤歷史數據 { "2023-01-01": 14000 }
+                    const [benchmarkData, setBenchmarkData] = useState(() => safeLoad('inv_benchmark_data', {}));
 
                     const [activeTab, setActiveTab] = useState('dashboard');
                     const [dashboardMode, setDashboardMode] = useState('assets'); 
@@ -155,6 +129,7 @@
                     const [modalType, setModalType] = useState(null);
                     const [showBackupAlert, setShowBackupAlert] = useState(false);
                     const [isPrivacyMode, setIsPrivacyMode] = useState(false);
+                    const [isFetchingBenchmark, setIsFetchingBenchmark] = useState(false);
                     
                     const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0]);
                     const [selectedAccount, setSelectedAccount] = useState(accounts.length>0 ? accounts[0].id : '');
@@ -175,10 +150,67 @@
                     useEffect(() => { try{localStorage.setItem('inv_accounts', JSON.stringify(accounts));}catch{} }, [accounts]);
                     useEffect(() => { try{localStorage.setItem('inv_records', JSON.stringify(records));}catch{} }, [records]);
                     useEffect(() => { try{localStorage.setItem('inv_settings', JSON.stringify(settings));}catch{} }, [settings]);
+                    useEffect(() => { try{localStorage.setItem('inv_benchmark_data', JSON.stringify(benchmarkData));}catch{} }, [benchmarkData]);
                     useEffect(() => { if(accounts.length>0 && !accounts.find(a=>a.id===selectedAccount)) setSelectedAccount(accounts[0].id); }, [accounts, selectedAccount]);
                     useEffect(() => { const h=()=>setIsFullscreen(!!document.fullscreenElement); document.addEventListener("fullscreenchange",h); return ()=>document.removeEventListener("fullscreenchange",h); }, []);
                     useEffect(() => { if(records.length===0)return; const last=settings.lastBackupDate?new Date(settings.lastBackupDate):null; if(!last||(new Date()-last>30*86400000)) setShowBackupAlert(true); else setShowBackupAlert(false); }, [settings.lastBackupDate, records.length]);
                     useEffect(() => { document.getElementById('loader').style.display='none'; }, []);
+
+                    // 自動抓取大盤數據 (使用 CORS Proxy)
+                    const fetchBenchmarkData = async (force = false) => {
+                        // 如果已經有資料且不是強制更新，且資料夠新 (簡單判斷 key 數量 > 100)，就不抓
+                        if (!force && Object.keys(benchmarkData).length > 100) return;
+
+                        setIsFetchingBenchmark(true);
+                        try {
+                            // 透過 corsproxy.io 抓取 Yahoo Finance 的 ^TWII 歷史數據 (5年日線)
+                            const url = "https://corsproxy.io/?https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII?interval=1d&range=5y";
+                            const res = await fetch(url);
+                            if (!res.ok) throw new Error("Network response was not ok");
+                            
+                            const json = await res.json();
+                            const result = json.chart.result[0];
+                            const quotes = result.indicators.quote[0].close;
+                            const timestamps = result.timestamp;
+                            
+                            const newMap = { ...benchmarkData };
+                            timestamps.forEach((t, i) => {
+                                if (quotes[i]) {
+                                    // 轉換為 YYYY-MM-DD
+                                    const date = new Date(t * 1000).toISOString().split('T')[0];
+                                    newMap[date] = quotes[i];
+                                }
+                            });
+                            
+                            setBenchmarkData(newMap);
+                            if (force) showToast("大盤資料已更新");
+                        } catch (e) {
+                            console.error("Fetch benchmark failed:", e);
+                            if (force) showToast("更新失敗，請稍後再試");
+                        } finally {
+                            setIsFetchingBenchmark(false);
+                        }
+                    };
+
+                    // 初始化時嘗試抓取
+                    useEffect(() => {
+                        fetchBenchmarkData();
+                    }, []);
+
+                    // 取得某日的大盤指數 (精確查找 -> 往前查找最近交易日)
+                    const getTaiexValue = (dateStr) => {
+                        if (!dateStr) return null;
+                        if (benchmarkData[dateStr]) return benchmarkData[dateStr];
+                        
+                        // 找不到當天，往前找 7 天內的最近數據 (處理假日)
+                        const d = new Date(dateStr);
+                        for (let i = 0; i < 7; i++) {
+                            d.setDate(d.getDate() - 1);
+                            const prevDate = d.toISOString().split('T')[0];
+                            if (benchmarkData[prevDate]) return benchmarkData[prevDate];
+                        }
+                        return null; // 真的找不到
+                    };
 
                     // Helpers
                     const showToast = (m) => { setNotification(m); setTimeout(()=>setNotification(null), 3000); };
@@ -186,11 +218,11 @@
                     const fmtCur = (v) => isPrivacyMode ? '****' : new Intl.NumberFormat('zh-TW',{maximumFractionDigits:0}).format(v);
                     const fmtPct = (v) => `${v>0?'+':''}${v?.toFixed(2)}%`;
                     
-                    // 動態金額格式化 (Smart Y-Axis Formatter)
+                    // 動態金額格式化 (Smart Y-Axis Formatter - 修正刻度問題)
                     const fmtAxis = (v) => {
                         if (isPrivacyMode) return '';
                         if (v >= 100000000) return `${(v/100000000).toFixed(1)}億`;
-                        if (v >= 10000) return `${(v/10000).toFixed(0)}萬`;
+                        if (v >= 10000) return `${(v/10000).toFixed(1)}萬`; // 保留一位小數
                         return v;
                     };
 
@@ -199,10 +231,10 @@
                     useEffect(()=>{ 
                         if(sortedRecs.length>0 && !benchmarkInput) {
                             const lastRec = sortedRecs[sortedRecs.length-1];
-                            const val = lastRec.benchmarkValue || getTaiexEstimate(lastRec.date);
-                            if(val) setBenchmarkInput(val); 
+                            const val = lastRec.benchmarkValue || getTaiexValue(lastRec.date);
+                            if(val) setBenchmarkInput(val.toFixed(0)); 
                         }
-                    },[sortedRecs]);
+                    },[sortedRecs, benchmarkData]);
 
                     const accStats = useMemo(()=>{
                         const res={}; accounts.forEach(a=>res[a.id]={name:a.name,color:a.color,currentValue:0,totalInvested:0,roi:0});
@@ -226,30 +258,17 @@
 
                     const pieData = useMemo(()=>Object.values(accStats).filter(s=>s.currentValue>0).map((s,i)=>({name:s.name,value:s.currentValue,color:s.color||PIE_COLORS[i%PIE_COLORS.length]})),[accStats]);
 
-                    // --- 圖表數據處理核心 (雙軸修復版) ---
+                    // --- 圖表數據處理核心 ---
                     const chartData = useMemo(()=>{
                         if(sortedRecs.length===0) return [];
                         const dates=[...new Set(sortedRecs.map(r=>r.date))].sort();
                         const res=[];
                         
-                        // 計算基準點
                         const firstDate = dates[0];
+                        // 基準點大盤：優先用紀錄的，沒有就查表
                         const firstRec = sortedRecs.find(r => r.date === firstDate);
-                        // 強制補全基準大盤
-                        const baseBenchmarkVal = (firstRec && parseFloat(firstRec.benchmarkValue)) || getTaiexEstimate(firstDate) || 20000;
+                        const baseBenchmarkVal = (firstRec && parseFloat(firstRec.benchmarkValue)) || getTaiexValue(firstDate);
                         
-                        let cumulativeInvested = 0; 
-                        
-                        // 預先計算初始累積投入
-                        accounts.forEach(a => {
-                            const rs = sortedRecs.filter(r => r.accountId === a.id && r.date === firstDate);
-                            if(rs.length > 0) {
-                                const f = rs[0];
-                                const init = parseFloat(f.marketValue) - parseFloat(f.cashFlow); 
-                                cumulativeInvested += (init + parseFloat(f.cashFlow));
-                            }
-                        });
-
                         dates.forEach((d)=>{
                             let tv=0, ti=0;
                             let hasData = false;
@@ -260,7 +279,6 @@
                                     hasData = true;
                                     const l=rs[rs.length-1];
                                     tv+=parseFloat(l.marketValue);
-                                    // 累計投入計算
                                     const accInit = parseFloat(rs[0].marketValue) - parseFloat(rs[0].cashFlow);
                                     const flows = rs.reduce((s,r)=>s+parseFloat(r.cashFlow),0);
                                     ti += (accInit + flows);
@@ -269,15 +287,16 @@
 
                             const pt = {date:d, total:tv, userROI:0};
                             
-                            // 獲取大盤，沒有就強制查表，確保一定有值
+                            // 獲取當日大盤
                             const bRec = sortedRecs.filter(r=>r.date<=d && r.benchmarkValue).pop();
-                            let bVal = bRec ? parseFloat(bRec.benchmarkValue) : getTaiexEstimate(d);
-                            pt.benchmarkVal = bVal; 
+                            let bVal = bRec ? parseFloat(bRec.benchmarkValue) : getTaiexValue(d);
+                            
+                            // 如果還是沒有 (API 尚未載入)，給個 null 讓線條斷開，而不是畫 0
+                            pt.benchmarkVal = bVal || null; 
 
                             if (hasData) {
                                 pt.userROI = ti ? ((tv - ti) / ti) * 100 : 0;
-                                // 確保基準不為 0
-                                if (baseBenchmarkVal) {
+                                if (baseBenchmarkVal && bVal) {
                                     pt.benchmarkROI = ((bVal - baseBenchmarkVal) / baseBenchmarkVal) * 100;
                                 } else {
                                     pt.benchmarkROI = 0;
@@ -286,7 +305,7 @@
                             res.push(pt);
                         });
                         return res;
-                    },[sortedRecs,accounts]);
+                    },[sortedRecs, accounts, benchmarkData]); // 相依 benchmarkData，確保抓完資料後重繪
 
                     const filteredData = useMemo(()=>{
                         if(chartData.length===0 || timeRange==='ALL') return chartData;
@@ -311,7 +330,7 @@
                         const cf = parseFloat(inputFlow)||0;
                         const finalCf = flowType==='deposit'?Math.abs(cf) : flowType==='withdraw'?-Math.abs(cf) : 0;
                         
-                        const bVal = benchmarkInput ? parseFloat(benchmarkInput) : getTaiexEstimate(entryDate);
+                        const bVal = benchmarkInput ? parseFloat(benchmarkInput) : getTaiexValue(entryDate);
 
                         const nr = {id:Date.now(), date:entryDate, accountId:selectedAccount, marketValue:parseFloat(marketValue), cashFlow:finalCf, benchmarkValue:bVal};
                         setRecords(p=>{
@@ -466,7 +485,8 @@
                                     updatedAccounts.push(acc);
                                 }
 
-                                const bVal = item.benchmarkValue || getTaiexEstimate(item.date);
+                                // 優先使用 AI 讀到的，若無則查表
+                                const bVal = item.benchmarkValue || getTaiexValue(item.date);
 
                                 newRecs.push({
                                     id: Date.now() + Math.random(),
@@ -587,7 +607,7 @@
                                                         <ComposedChart data={filteredData}>
                                                             <defs><linearGradient id="cV" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
                                                             <XAxis dataKey="date" hide={false} tick={{fontSize: 10}} tickFormatter={(d)=>d.slice(5)} minTickGap={30} />
-                                                            {/* 智慧刻度 (Smart Scale) */}
+                                                            {/* 智慧刻度 (Smart Scale) - 自動抓 min max，不從 0 開始 */}
                                                             <YAxis yAxisId="left" orientation="left" hide={false} width={40} tick={{fontSize: 9}} tickFormatter={fmtAxis} domain={['auto', 'auto']} />
                                                             <YAxis yAxisId="right" orientation="right" hide={false} width={40} tick={{fontSize: 9, fill: '#f97316'}} domain={['auto', 'auto']} />
                                                             <Tooltip formatter={(v, n)=> n.includes('指數') ? v : fmtCur(v)} labelStyle={{color:'#333'}} />
@@ -654,10 +674,15 @@
                                                 {flowType!=='none' && <div className="animate-fade-in"><Input type="number" placeholder="輸入變動金額" value={inputFlow} onChange={e=>setInputFlow(e.target.value)}/></div>}
                                             </div>
 
-                                            <div className="pt-2 border-t border-slate-100">
-                                                 <Input label="大盤指數 (自動填入)" type="number" value={benchmarkInput} onChange={e=>setBenchmarkInput(e.target.value)} placeholder={getTaiexEstimate(entryDate) || "輸入指數"} />
-                                                 <p className="text-xs text-slate-400 mt-1">若留空將自動使用內建歷史數據 ({getTaiexEstimate(entryDate)})</p>
+                                            <div className="pt-2 border-t border-slate-100 flex justify-between items-center">
+                                                 <div className="flex-1 mr-2">
+                                                     <Input label="大盤指數" type="number" value={benchmarkInput} onChange={e=>setBenchmarkInput(e.target.value)} placeholder={getTaiexValue(entryDate) || "輸入指數"} />
+                                                 </div>
+                                                 <Button onClick={()=>fetchBenchmarkData(true)} variant="outline" size="sm" className="mt-6" disabled={isFetchingBenchmark}>
+                                                    {isFetchingBenchmark ? <Loader2 className="animate-spin" size={16}/> : <RefreshCw size={16}/>}
+                                                 </Button>
                                             </div>
+                                            <p className="text-xs text-slate-400">大盤數據源：Yahoo Finance (延遲)</p>
                                         </div>
 
                                         <Button onClick={handleAdd} className="w-full mt-4 text-lg py-4 shadow-md shadow-blue-200"><Save size={20}/> 儲存紀錄</Button>
@@ -723,7 +748,7 @@
                                             <Button onClick={()=>{setAccounts([...accounts, {id:Date.now().toString(), name:'新帳號', color:'#64748b'}])}} variant="secondary" className="w-full mt-2 text-sm">新增帳號</Button>
                                         </Card>
                                         
-                                        <div className="text-center text-xs text-slate-300 pt-4">v1.6.0 Fixes</div>
+                                        <div className="text-center text-xs text-slate-300 pt-4">v1.6.1 Live Benchmark</div>
                                     </div>
                                 )}
                             </div>
