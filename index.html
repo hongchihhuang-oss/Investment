@@ -45,13 +45,12 @@
     <script type="text/babel">
         (function() {
             try {
-                const APP_VERSION = "v1.8.0";
+                const APP_VERSION = "v1.9.0";
                 const { useState, useEffect, useMemo, useRef } = React;
                 const R = window.Recharts || {};
                 const { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell, ReferenceLine } = R;
 
-                // --- 內建台股大盤歷史數據 (包含 2025 預估/實際值) ---
-                // 這是為了防止 API 抓不到時，圖表不會斷掉
+                // --- 內建台股大盤歷史數據 ---
                 const TAIEX_HISTORY = {
                     "2019-01": 9932, "2019-06": 10730, "2019-12": 11997,
                     "2020-06": 11621, "2020-12": 14732,
@@ -59,7 +58,6 @@
                     "2022-06": 14825, "2022-12": 14137,
                     "2023-01": 15265, "2023-06": 16915, "2023-12": 17930,
                     "2024-01": 17889, "2024-03": 20294, "2024-06": 23032, "2024-09": 22224, "2024-12": 22500,
-                    // 2025 年數據補齊 (模擬/實際數據)
                     "2025-01": 23800, "2025-02": 24200, "2025-03": 24500, "2025-04": 25000, 
                     "2025-05": 25500, "2025-06": 26000, "2025-07": 26500, "2025-08": 27000,
                     "2025-09": 27500, "2025-10": 28233, "2025-11": 27626, "2025-12": 28556
@@ -67,15 +65,11 @@
 
                 const getTaiexEstimate = (dateStr) => {
                     if (!dateStr) return 22000;
-                    const key = dateStr.substring(0, 7); // YYYY-MM
-                    // 1. 精準對應
+                    const key = dateStr.substring(0, 7); 
                     if (TAIEX_HISTORY[key]) return TAIEX_HISTORY[key];
-                    
-                    // 2. 若找不到，嘗試找該年份的趨勢 (簡單插值)
                     const year = parseInt(dateStr.substring(0, 4));
-                    if (year === 2025) return 26000; // 2025 平均
+                    if (year === 2025) return 26000;
                     if (year > 2025) return 28000;
-                    
                     return 20000; 
                 };
 
@@ -101,7 +95,9 @@
                     PieChart: ["M21.21 15.89A10 10 0 118 2.83", "M22 12A10 10 0 0012 2V12H22Z"],
                     Image: ["M21 19V5C21 3.9 20.1 3 19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19ZM8.5 13.5L11 16.5L14.5 12L19 18H5L8.5 13.5Z"],
                     Activity: ["M22 12h-4l-3 9L9 3l-3 9H2"],
-                    RefreshCw: ["M23 4v6h-6", "M1 20v-6h6", "M3.51 9a9 9 0 0 1 14.85-3.36L23 10", "M1 14l4.64 4.36A9 9 0 0 0 20.49 15"]
+                    RefreshCw: ["M23 4v6h-6", "M1 20v-6h6", "M3.51 9a9 9 0 0 1 14.85-3.36L23 10", "M1 14l4.64 4.36A9 9 0 0 0 20.49 15"],
+                    Briefcase: ["M20 7h-4V4c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v3H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zM10 4h4v3h-4V4z"],
+                    CreditCard: ["M21 4H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H3V12h18v6zM3 8V6h18v2H3z"]
                 };
 
                 const Icon = ({ d, size = 24, className = "" }) => (
@@ -114,7 +110,7 @@
                 Object.keys(ICON_PATHS).forEach(key => {
                     Icons[key] = (props) => <Icon d={ICON_PATHS[key]} {...props} />;
                 });
-                const { TrendingUp, Trash2, Save, BarChart2, Sparkles, Loader2, Database, Check, X, Download, Upload, AlertTriangle, Smartphone, Maximize, Minimize, Eye, EyeOff, PieChart: PieIcon, Image: ImageIcon, Activity, RefreshCw } = Icons;
+                const { TrendingUp, Trash2, Save, BarChart2, Sparkles, Loader2, Database, Check, X, Download, Upload, AlertTriangle, Smartphone, Maximize, Minimize, Eye, EyeOff, PieChart: PieIcon, Image: ImageIcon, Activity, RefreshCw, Briefcase, CreditCard } = Icons;
 
                 const Card = ({ children, className = "" }) => <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className}`}>{children}</div>;
                 
@@ -146,8 +142,6 @@
                     const [settings, setSettings] = useState(() => safeLoad('inv_settings', { benchmarkName: '台股加權指數', apiKey: '', lastBackupDate: null }));
                     const [accounts, setAccounts] = useState(() => safeLoad('inv_accounts', [{ id: 'a1', name: '帳號 A', color: '#3b82f6' }, { id: 'a2', name: '帳號 B', color: '#10b981' }, { id: 'a3', name: '帳號 C', color: '#f59e0b' }]));
                     const [records, setRecords] = useState(() => safeLoad('inv_records', []));
-                    
-                    // 獨立儲存大盤歷史數據 { "2023-01-01": 14000 }
                     const [benchmarkData, setBenchmarkData] = useState(() => safeLoad('inv_benchmark_data', {}));
 
                     const [activeTab, setActiveTab] = useState('dashboard');
@@ -160,11 +154,13 @@
                     const [isPrivacyMode, setIsPrivacyMode] = useState(false);
                     const [isFetchingBenchmark, setIsFetchingBenchmark] = useState(false);
                     
+                    // Input States
+                    const [inputType, setInputType] = useState('balance'); // 'balance' | 'flow'
                     const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0]);
                     const [selectedAccount, setSelectedAccount] = useState(accounts.length>0 ? accounts[0].id : '');
                     const [marketValue, setMarketValue] = useState('');
                     const [inputFlow, setInputFlow] = useState('');
-                    const [flowType, setFlowType] = useState('none');
+                    const [flowType, setFlowType] = useState('deposit');
                     const [benchmarkInput, setBenchmarkInput] = useState('');
                     
                     const [isAiProcessing, setIsAiProcessing] = useState(false);
@@ -175,7 +171,6 @@
 
                     const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6366f1'];
 
-                    // Effects
                     useEffect(() => { try{localStorage.setItem('inv_accounts', JSON.stringify(accounts));}catch{} }, [accounts]);
                     useEffect(() => { try{localStorage.setItem('inv_records', JSON.stringify(records));}catch{} }, [records]);
                     useEffect(() => { try{localStorage.setItem('inv_settings', JSON.stringify(settings));}catch{} }, [settings]);
@@ -185,21 +180,17 @@
                     useEffect(() => { if(records.length===0)return; const last=settings.lastBackupDate?new Date(settings.lastBackupDate):null; if(!last||(new Date()-last>30*86400000)) setShowBackupAlert(true); else setShowBackupAlert(false); }, [settings.lastBackupDate, records.length]);
                     useEffect(() => { document.getElementById('loader').style.display='none'; }, []);
 
-                    // 自動抓取大盤數據 (使用 CORS Proxy)
                     const fetchBenchmarkData = async (force = false) => {
                         if (!force && Object.keys(benchmarkData).length > 100) return;
-
                         setIsFetchingBenchmark(true);
                         try {
                             const url = "https://corsproxy.io/?https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII?interval=1d&range=5y";
                             const res = await fetch(url);
                             if (!res.ok) throw new Error("Network response was not ok");
-                            
                             const json = await res.json();
                             const result = json.chart.result[0];
                             const quotes = result.indicators.quote[0].close;
                             const timestamps = result.timestamp;
-                            
                             const newMap = { ...benchmarkData };
                             timestamps.forEach((t, i) => {
                                 if (quotes[i]) {
@@ -207,7 +198,6 @@
                                     newMap[date] = quotes[i];
                                 }
                             });
-                            
                             setBenchmarkData(newMap);
                             if (force) showToast("大盤資料已更新");
                         } catch (e) {
@@ -218,14 +208,11 @@
                         }
                     };
 
-                    useEffect(() => {
-                        fetchBenchmarkData();
-                    }, []);
+                    useEffect(() => { fetchBenchmarkData(); }, []);
 
                     const getTaiexValue = (dateStr) => {
                         if (!dateStr) return null;
                         if (benchmarkData[dateStr]) return benchmarkData[dateStr];
-                        
                         const d = new Date(dateStr);
                         for (let i = 0; i < 7; i++) {
                             d.setDate(d.getDate() - 1);
@@ -235,23 +222,18 @@
                         return null; 
                     };
 
-                    // Helpers
                     const showToast = (m) => { setNotification(m); setTimeout(()=>setNotification(null), 3000); };
                     const toggleFs = () => { if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else if(document.exitFullscreen) document.exitFullscreen().catch(()=>{}); };
                     const fmtCur = (v) => isPrivacyMode ? '****' : new Intl.NumberFormat('zh-TW',{maximumFractionDigits:0}).format(v);
                     const fmtPct = (v) => `${v>0?'+':''}${v?.toFixed(2)}%`;
-                    
                     const fmtAxis = (v) => {
                         if (isPrivacyMode) return '';
                         if (v >= 100000000) return `${(v/100000000).toFixed(1)}億`;
                         if (v >= 10000) return `${(v/10000).toFixed(1)}萬`; 
                         return v;
                     };
-
-                    // X軸日期格式化 (YY/MM/DD)
                     const fmtDateAxis = (d) => {
                         if (!d) return '';
-                        // d is YYYY-MM-DD
                         return d.slice(2).replace(/-/g, '/');
                     };
 
@@ -291,16 +273,13 @@
                         if(sortedRecs.length===0) return [];
                         const dates=[...new Set(sortedRecs.map(r=>r.date))].sort();
                         const res=[];
-                        
                         const firstDate = dates[0];
                         const firstRec = sortedRecs.find(r => r.date === firstDate);
-                        // 基準點大盤：優先用紀錄 > 查表 > 估算
                         const baseBenchmarkVal = (firstRec && parseFloat(firstRec.benchmarkValue)) || getTaiexValue(firstDate) || getTaiexEstimate(firstDate);
                         
                         dates.forEach((d)=>{
                             let tv=0, ti=0;
                             let hasData = false;
-                            
                             accounts.forEach(a=>{
                                 const rs=sortedRecs.filter(r=>r.accountId===a.id && r.date<=d);
                                 if(rs.length>0) {
@@ -312,14 +291,10 @@
                                     ti += (accInit + flows);
                                 }
                             });
-
                             const pt = {date:d, total:tv, userROI:0};
-                            
-                            // 獲取當日大盤
                             const bRec = sortedRecs.filter(r=>r.date<=d && r.benchmarkValue).pop();
                             let bVal = bRec ? parseFloat(bRec.benchmarkValue) : (getTaiexValue(d) || getTaiexEstimate(d));
                             pt.benchmarkVal = bVal; 
-
                             if (hasData) {
                                 pt.userROI = ti ? ((tv - ti) / ti) * 100 : 0;
                                 if (baseBenchmarkVal && bVal) {
@@ -352,19 +327,63 @@
                     }, [chartData]);
 
                     const handleAdd = () => {
-                        if(!marketValue||!entryDate||!selectedAccount) return showToast("請填寫日期、帳號與市值");
-                        const cf = parseFloat(inputFlow)||0;
-                        const finalCf = flowType==='deposit'?Math.abs(cf) : flowType==='withdraw'?-Math.abs(cf) : 0;
+                        if(!entryDate||!selectedAccount) return showToast("請填寫日期與帳號");
                         
+                        // Validation logic split by type
+                        if(inputType === 'balance' && !marketValue) return showToast("請輸入總市值");
+                        if(inputType === 'flow' && !inputFlow) return showToast("請輸入存提金額");
+
+                        let finalMV = 0;
+                        let finalCF = 0;
                         const bVal = benchmarkInput ? parseFloat(benchmarkInput) : (getTaiexValue(entryDate) || getTaiexEstimate(entryDate));
 
-                        const nr = {id:Date.now(), date:entryDate, accountId:selectedAccount, marketValue:parseFloat(marketValue), cashFlow:finalCf, benchmarkValue:bVal};
-                        setRecords(p=>{
-                            const ex = p.findIndex(r=>r.date===entryDate && r.accountId===selectedAccount);
-                            if(ex>=0) { const n=[...p]; n[ex]=nr; return n; }
-                            return [...p, nr];
+                        // Find existing record for this date/account
+                        const existingRecIndex = records.findIndex(r => r.date === entryDate && r.accountId === selectedAccount);
+                        let existingRec = existingRecIndex >= 0 ? records[existingRecIndex] : null;
+
+                        if (inputType === 'balance') {
+                            // Update Asset Value, preserve existing flow if any
+                            finalMV = parseFloat(marketValue);
+                            finalCF = existingRec ? existingRec.cashFlow : 0;
+                        } else {
+                            // Update Flow, Auto-calculate Asset Value if needed
+                            const amt = parseFloat(inputFlow);
+                            finalCF = flowType === 'deposit' ? Math.abs(amt) : -Math.abs(amt);
+                            
+                            if (existingRec) {
+                                // If record exists, keep existing MV? Or adjust it? 
+                                // User request: "Separate". So we usually assume user updates MV separately.
+                                // BUT, if we don't adjust MV, the net worth drops instantly on withdrawal, which is correct.
+                                // However, if the user hasn't updated MV yet, we should probably keep the old MV?
+                                // Let's keep it simple: If only flow is added, we prefer to KEEP existing MV if present.
+                                // If no existing MV (new record), we must derive it from previous day.
+                                finalMV = existingRec.marketValue; 
+                            } else {
+                                // No record today. Find previous record to derive MV
+                                const prevRec = sortedRecs.filter(r => r.accountId === selectedAccount && r.date < entryDate).pop();
+                                const prevMV = prevRec ? parseFloat(prevRec.marketValue) : 0;
+                                finalMV = prevMV + finalCF; // Auto-adjust MV based on flow
+                                showToast(`已自動推算市值: ${finalMV}`);
+                            }
+                        }
+
+                        const nr = {
+                            id: existingRec ? existingRec.id : Date.now(), 
+                            date: entryDate, 
+                            accountId: selectedAccount, 
+                            marketValue: finalMV, 
+                            cashFlow: finalCF, 
+                            benchmarkValue: bVal
+                        };
+
+                        setRecords(p => {
+                            const n = [...p];
+                            if(existingRecIndex >= 0) n[existingRecIndex] = nr;
+                            else n.push(nr);
+                            return n;
                         });
-                        setMarketValue(''); setInputFlow(''); setFlowType('none'); 
+
+                        setMarketValue(''); setInputFlow(''); 
                         showToast("已儲存");
                     };
 
@@ -679,33 +698,46 @@
                                     <Card className="p-5 space-y-5 animate-fade-in pb-20">
                                         <div className="flex justify-between items-center"><h2 className="font-bold text-slate-800">新增紀錄</h2><Button variant="magic" size="sm" onClick={()=>setModalType('ai')}><Sparkles size={16}/> AI 貼上</Button></div>
                                         
+                                        <div className="bg-slate-100 p-1 rounded-lg flex mb-4">
+                                            <button onClick={()=>setInputType('balance')} className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${inputType==='balance'?'bg-white text-slate-800 shadow-sm':'text-slate-500'}`}>
+                                                <div className="flex items-center justify-center gap-2"><Briefcase size={16}/> 市值更新</div>
+                                            </button>
+                                            <button onClick={()=>setInputType('flow')} className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${inputType==='flow'?'bg-white text-blue-600 shadow-sm':'text-slate-500'}`}>
+                                                <div className="flex items-center justify-center gap-2"><CreditCard size={16}/> 資金存提</div>
+                                            </button>
+                                        </div>
+
                                         <div className="space-y-4">
                                             <div className="grid grid-cols-2 gap-3">
                                                 <Input type="date" label="日期" value={entryDate} onChange={e=>setEntryDate(e.target.value)} />
                                                 <Select label="帳戶" value={selectedAccount} onChange={e=>setSelectedAccount(e.target.value)} options={accounts.map(a=>({value:a.id,label:a.name}))} />
                                             </div>
                                             
-                                            <Input label="當前總市值" type="number" value={marketValue} onChange={e=>setMarketValue(e.target.value)} placeholder="輸入金額" />
-                                            
-                                            <div className="pt-2">
-                                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">資金變動</label>
-                                                <div className="flex gap-2 mb-2">
-                                                    <button onClick={()=>{setFlowType('none');setInputFlow('')}} className={`flex-1 py-2 text-sm rounded border transition ${flowType==='none'?'bg-slate-800 text-white border-slate-800':'bg-white text-slate-600 border-slate-200'}`}>無</button>
-                                                    <button onClick={()=>setFlowType('deposit')} className={`flex-1 py-2 text-sm rounded border transition ${flowType==='deposit'?'bg-blue-600 text-white border-blue-600':'bg-white text-slate-600 border-slate-200'}`}>存入</button>
-                                                    <button onClick={()=>setFlowType('withdraw')} className={`flex-1 py-2 text-sm rounded border transition ${flowType==='withdraw'?'bg-orange-500 text-white border-orange-500':'bg-white text-slate-600 border-slate-200'}`}>領出</button>
+                                            {inputType === 'balance' ? (
+                                                <div className="animate-fade-in">
+                                                    <Input label="當前總市值" type="number" value={marketValue} onChange={e=>setMarketValue(e.target.value)} placeholder="輸入總市值" />
                                                 </div>
-                                                {flowType!=='none' && <div className="animate-fade-in"><Input type="number" placeholder="輸入變動金額" value={inputFlow} onChange={e=>setInputFlow(e.target.value)}/></div>}
-                                            </div>
+                                            ) : (
+                                                <div className="space-y-4 animate-fade-in">
+                                                    <div>
+                                                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">資金流向</label>
+                                                        <div className="flex gap-2">
+                                                            <button onClick={()=>setFlowType('deposit')} className={`flex-1 py-3 rounded-lg border text-sm font-medium transition-all ${flowType==='deposit'?'bg-blue-50 border-blue-200 text-blue-600 ring-2 ring-blue-100':'bg-white border-slate-200 text-slate-600'}`}>存入 (Deposit)</button>
+                                                            <button onClick={()=>setFlowType('withdraw')} className={`flex-1 py-3 rounded-lg border text-sm font-medium transition-all ${flowType==='withdraw'?'bg-orange-50 border-orange-200 text-orange-600 ring-2 ring-orange-100':'bg-white border-slate-200 text-slate-600'}`}>領出 (Withdraw)</button>
+                                                        </div>
+                                                    </div>
+                                                    <Input label="金額" type="number" value={inputFlow} onChange={e=>setInputFlow(e.target.value)} placeholder="輸入金額" />
+                                                </div>
+                                            )}
 
-                                            <div className="pt-2 border-t border-slate-100 flex justify-between items-center">
+                                            <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
                                                  <div className="flex-1 mr-2">
-                                                     <Input label="大盤指數" type="number" value={benchmarkInput} onChange={e=>setBenchmarkInput(e.target.value)} placeholder={getTaiexEstimate(entryDate) || "輸入指數"} />
+                                                     <Input label="大盤指數 (自動)" type="number" value={benchmarkInput} onChange={e=>setBenchmarkInput(e.target.value)} placeholder={getTaiexEstimate(entryDate) || "輸入指數"} />
                                                  </div>
-                                                 <Button onClick={()=>fetchBenchmarkData(true)} variant="outline" size="sm" className="mt-6" disabled={isFetchingBenchmark}>
+                                                 <Button onClick={()=>fetchBenchmarkData(true)} variant="outline" size="sm" className="mt-6 h-11" disabled={isFetchingBenchmark}>
                                                     {isFetchingBenchmark ? <Loader2 className="animate-spin" size={16}/> : <RefreshCw size={16}/>}
                                                  </Button>
                                             </div>
-                                            <p className="text-xs text-slate-400">大盤數據源：Yahoo Finance (延遲)</p>
                                         </div>
 
                                         <Button onClick={handleAdd} className="w-full mt-4 text-lg py-4 shadow-md shadow-blue-200"><Save size={20}/> 儲存紀錄</Button>
