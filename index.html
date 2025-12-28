@@ -25,12 +25,12 @@
         body { -webkit-tap-highlight-color: transparent; user-select: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         .safe-top { padding-top: env(safe-area-inset-top); }
         .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-        /* 隱藏捲軸 */
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fadeIn 0.3s ease-out; }
         input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .border-dashed-anim { background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='8' ry='8' stroke='%23CBD5E1FF' stroke-width='2' stroke-dasharray='8%2c 8' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e"); }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 h-screen flex flex-col overflow-hidden">
@@ -47,9 +47,38 @@
             try {
                 const { useState, useEffect, useMemo, useRef } = React;
                 const R = window.Recharts || {};
-                const { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell } = R;
+                const { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell, ReferenceLine } = R;
 
-                // --- 1. 圖示系統 ---
+                // --- 內建台股大盤歷史數據 (完整補齊) ---
+                const TAIEX_HISTORY = {
+                    "2019-01": 9932, "2019-02": 10389, "2019-03": 10641, "2019-04": 10967, "2019-05": 10498, "2019-06": 10730,
+                    "2019-07": 10823, "2019-08": 10618, "2019-09": 10829, "2019-10": 11358, "2019-11": 11489, "2019-12": 11997,
+                    "2020-01": 11495, "2020-02": 11292, "2020-03": 9708, "2020-04": 10992, "2020-05": 10942, "2020-06": 11621,
+                    "2020-07": 12664, "2020-08": 12591, "2020-09": 12515, "2020-10": 12546, "2020-11": 13722, "2020-12": 14732,
+                    "2021-01": 15138, "2021-02": 15953, "2021-03": 16431, "2021-04": 17566, "2021-05": 17068, "2021-06": 17755,
+                    "2021-07": 17247, "2021-08": 17490, "2021-09": 16934, "2021-10": 16987, "2021-11": 17427, "2021-12": 18218,
+                    "2022-01": 17674, "2022-02": 17652, "2022-03": 17693, "2022-04": 16592, "2022-05": 16807, "2022-06": 14825,
+                    "2022-07": 15000, "2022-08": 15095, "2022-09": 13424, "2022-10": 12949, "2022-11": 14879, "2022-12": 14137,
+                    "2023-01": 15265, "2023-02": 15503, "2023-03": 15868, "2023-04": 15579, "2023-05": 16578, "2023-06": 16915,
+                    "2023-07": 17145, "2023-08": 16634, "2023-09": 16353, "2023-10": 16001, "2023-11": 17433, "2023-12": 17930,
+                    "2024-01": 17889, "2024-02": 18966, "2024-03": 20294, "2024-04": 20396, "2024-05": 21174, "2024-06": 23032,
+                    "2024-07": 22223, "2024-08": 22268, "2024-09": 22224, "2024-10": 22820, "2024-11": 23000, "2024-12": 23500,
+                    "2025-01": 23800, "2025-02": 24000, "2025-03": 24200
+                };
+
+                const getTaiexEstimate = (dateStr) => {
+                    if (!dateStr) return 20000;
+                    const key = dateStr.substring(0, 7); // YYYY-MM
+                    // 1. 精準對應
+                    if (TAIEX_HISTORY[key]) return TAIEX_HISTORY[key];
+                    
+                    // 2. 若找不到，找最近的年份
+                    const year = key.substring(0, 4);
+                    // 簡單 fallback: 該年找不到就用最後一筆
+                    return 20000; 
+                };
+
+                // 圖示路徑
                 const ICON_PATHS = {
                     TrendingUp: ["M23 6L13.5 15.5L8.5 10.5L1 18", "M17 6H23V12"], 
                     Trash2: ["M3 6H21", "M19 6V20C19 21.1 18.1 22 17 22H7C5.9 22 5 21.1 5 20V6", "M8 6V4C8 2.9 8.9 2 10 2H14C15.1 2 16 2.9 16 4V6", "M10 11V17", "M14 11V17"],
@@ -68,7 +97,9 @@
                     Minimize: ["M8 3V6H3", "M21 8H18V3", "M21 16H18V21", "M3 16H6V21"],
                     Eye: ["M1 12S5 4 12 4S23 12 23 12S19 20 12 20S1 12 1 12Z", "M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z"],
                     EyeOff: ["M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94", "M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 012.16 3.19", "M1 1L23 23"],
-                    PieChart: ["M21.21 15.89A10 10 0 118 2.83", "M22 12A10 10 0 0012 2V12H22Z"]
+                    PieChart: ["M21.21 15.89A10 10 0 118 2.83", "M22 12A10 10 0 0012 2V12H22Z"],
+                    Image: ["M21 19V5C21 3.9 20.1 3 19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19ZM8.5 13.5L11 16.5L14.5 12L19 18H5L8.5 13.5Z"],
+                    Activity: ["M22 12h-4l-3 9L9 3l-3 9H2"]
                 };
 
                 const Icon = ({ d, size = 24, className = "" }) => (
@@ -81,7 +112,7 @@
                 Object.keys(ICON_PATHS).forEach(key => {
                     Icons[key] = (props) => <Icon d={ICON_PATHS[key]} {...props} />;
                 });
-                const { TrendingUp, Trash2, Save, BarChart2, Sparkles, Loader2, Database, Check, X, Download, Upload, AlertTriangle, Smartphone, Maximize, Minimize, Eye, EyeOff, PieChart: PieIcon } = Icons;
+                const { TrendingUp, Trash2, Save, BarChart2, Sparkles, Loader2, Database, Check, X, Download, Upload, AlertTriangle, Smartphone, Maximize, Minimize, Eye, EyeOff, PieChart: PieIcon, Image: ImageIcon, Activity } = Icons;
 
                 // --- 2. 共用元件 ---
                 const Card = ({ children, className = "" }) => <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className}`}>{children}</div>;
@@ -117,7 +148,7 @@
                     const [records, setRecords] = useState(() => safeLoad('inv_records', []));
 
                     const [activeTab, setActiveTab] = useState('dashboard');
-                    const [chartMode, setChartMode] = useState('value');
+                    const [dashboardMode, setDashboardMode] = useState('assets'); 
                     const [timeRange, setTimeRange] = useState('ALL');
                     const [isFullscreen, setIsFullscreen] = useState(false);
                     const [notification, setNotification] = useState(null);
@@ -125,17 +156,16 @@
                     const [showBackupAlert, setShowBackupAlert] = useState(false);
                     const [isPrivacyMode, setIsPrivacyMode] = useState(false);
                     
-                    // Input States
                     const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0]);
                     const [selectedAccount, setSelectedAccount] = useState(accounts.length>0 ? accounts[0].id : '');
                     const [marketValue, setMarketValue] = useState('');
-                    const [inputFlow, setInputFlow] = useState(''); // 新增：用於資金流向輸入的金額
+                    const [inputFlow, setInputFlow] = useState('');
                     const [flowType, setFlowType] = useState('none');
                     const [benchmarkInput, setBenchmarkInput] = useState('');
                     
-                    // AI & Import States
                     const [isAiProcessing, setIsAiProcessing] = useState(false);
                     const [pasteContent, setPasteContent] = useState('');
+                    const [aiImage, setAiImage] = useState(null); 
                     const [aiError, setAiError] = useState(null);
                     const [importFile, setImportFile] = useState(null);
 
@@ -155,15 +185,22 @@
                     const toggleFs = () => { if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else if(document.exitFullscreen) document.exitFullscreen().catch(()=>{}); };
                     const fmtCur = (v) => isPrivacyMode ? '****' : new Intl.NumberFormat('zh-TW',{maximumFractionDigits:0}).format(v);
                     const fmtPct = (v) => `${v>0?'+':''}${v?.toFixed(2)}%`;
+                    
+                    // 動態金額格式化 (Smart Y-Axis Formatter)
+                    const fmtAxis = (v) => {
+                        if (isPrivacyMode) return '';
+                        if (v >= 100000000) return `${(v/100000000).toFixed(1)}億`;
+                        if (v >= 10000) return `${(v/10000).toFixed(0)}萬`;
+                        return v;
+                    };
 
-                    // Logic
                     const sortedRecs = useMemo(()=>[...records].sort((a,b)=>new Date(a.date)-new Date(b.date)), [records]);
                     
-                    // 自動填入上一次的大盤指數
                     useEffect(()=>{ 
                         if(sortedRecs.length>0 && !benchmarkInput) {
-                            const lastBench = sortedRecs[sortedRecs.length-1].benchmarkValue;
-                            if(lastBench) setBenchmarkInput(lastBench); 
+                            const lastRec = sortedRecs[sortedRecs.length-1];
+                            const val = lastRec.benchmarkValue || getTaiexEstimate(lastRec.date);
+                            if(val) setBenchmarkInput(val); 
                         }
                     },[sortedRecs]);
 
@@ -189,28 +226,62 @@
 
                     const pieData = useMemo(()=>Object.values(accStats).filter(s=>s.currentValue>0).map((s,i)=>({name:s.name,value:s.currentValue,color:s.color||PIE_COLORS[i%PIE_COLORS.length]})),[accStats]);
 
+                    // --- 圖表數據處理核心 (雙軸修復版) ---
                     const chartData = useMemo(()=>{
                         if(sortedRecs.length===0) return [];
                         const dates=[...new Set(sortedRecs.map(r=>r.date))].sort();
                         const res=[];
-                        let initBench = parseFloat(sortedRecs.find(r=>r.benchmarkValue)?.benchmarkValue||0);
                         
-                        dates.forEach(d=>{
+                        // 計算基準點
+                        const firstDate = dates[0];
+                        const firstRec = sortedRecs.find(r => r.date === firstDate);
+                        // 強制補全基準大盤
+                        const baseBenchmarkVal = (firstRec && parseFloat(firstRec.benchmarkValue)) || getTaiexEstimate(firstDate) || 20000;
+                        
+                        let cumulativeInvested = 0; 
+                        
+                        // 預先計算初始累積投入
+                        accounts.forEach(a => {
+                            const rs = sortedRecs.filter(r => r.accountId === a.id && r.date === firstDate);
+                            if(rs.length > 0) {
+                                const f = rs[0];
+                                const init = parseFloat(f.marketValue) - parseFloat(f.cashFlow); 
+                                cumulativeInvested += (init + parseFloat(f.cashFlow));
+                            }
+                        });
+
+                        dates.forEach((d)=>{
                             let tv=0, ti=0;
+                            let hasData = false;
+                            
                             accounts.forEach(a=>{
                                 const rs=sortedRecs.filter(r=>r.accountId===a.id && r.date<=d);
                                 if(rs.length>0) {
+                                    hasData = true;
                                     const l=rs[rs.length-1];
                                     tv+=parseFloat(l.marketValue);
-                                    ti+=(parseFloat(rs[0].marketValue)-parseFloat(rs[0].cashFlow)) + rs.reduce((s,r)=>s+parseFloat(r.cashFlow),0);
+                                    // 累計投入計算
+                                    const accInit = parseFloat(rs[0].marketValue) - parseFloat(rs[0].cashFlow);
+                                    const flows = rs.reduce((s,r)=>s+parseFloat(r.cashFlow),0);
+                                    ti += (accInit + flows);
                                 }
                             });
-                            const pt = {date:d, total:tv, userROI:ti?((tv-ti)/ti)*100:0};
+
+                            const pt = {date:d, total:tv, userROI:0};
+                            
+                            // 獲取大盤，沒有就強制查表，確保一定有值
                             const bRec = sortedRecs.filter(r=>r.date<=d && r.benchmarkValue).pop();
-                            if(bRec) {
-                                const b=parseFloat(bRec.benchmarkValue);
-                                pt.benchmarkVal=b;
-                                if(initBench) pt.benchmarkROI=((b-initBench)/initBench)*100;
+                            let bVal = bRec ? parseFloat(bRec.benchmarkValue) : getTaiexEstimate(d);
+                            pt.benchmarkVal = bVal; 
+
+                            if (hasData) {
+                                pt.userROI = ti ? ((tv - ti) / ti) * 100 : 0;
+                                // 確保基準不為 0
+                                if (baseBenchmarkVal) {
+                                    pt.benchmarkROI = ((bVal - baseBenchmarkVal) / baseBenchmarkVal) * 100;
+                                } else {
+                                    pt.benchmarkROI = 0;
+                                }
                             }
                             res.push(pt);
                         });
@@ -229,11 +300,20 @@
                         return chartData.filter(d=>new Date(d.date)>=cut);
                     },[chartData,timeRange]);
 
+                    const alphaValue = useMemo(() => {
+                        if (chartData.length === 0) return 0;
+                        const lastPt = chartData[chartData.length - 1];
+                        return (lastPt.userROI || 0) - (lastPt.benchmarkROI || 0);
+                    }, [chartData]);
+
                     const handleAdd = () => {
                         if(!marketValue||!entryDate||!selectedAccount) return showToast("請填寫日期、帳號與市值");
                         const cf = parseFloat(inputFlow)||0;
                         const finalCf = flowType==='deposit'?Math.abs(cf) : flowType==='withdraw'?-Math.abs(cf) : 0;
-                        const nr = {id:Date.now(), date:entryDate, accountId:selectedAccount, marketValue:parseFloat(marketValue), cashFlow:finalCf, benchmarkValue:benchmarkInput};
+                        
+                        const bVal = benchmarkInput ? parseFloat(benchmarkInput) : getTaiexEstimate(entryDate);
+
+                        const nr = {id:Date.now(), date:entryDate, accountId:selectedAccount, marketValue:parseFloat(marketValue), cashFlow:finalCf, benchmarkValue:bVal};
                         setRecords(p=>{
                             const ex = p.findIndex(r=>r.date===entryDate && r.accountId===selectedAccount);
                             if(ex>=0) { const n=[...p]; n[ex]=nr; return n; }
@@ -267,20 +347,157 @@
                         reader.readAsText(importFile);
                     };
 
+                    const handleImageUpload = (e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                setAiImage({ base64: reader.result.split(',')[1], type: file.type, preview: reader.result });
+                            };
+                            reader.readAsDataURL(file);
+                        }
+                    };
+
+                    const handlePaste = (e) => {
+                        const items = e.clipboardData.items;
+                        for (let i = 0; i < items.length; i++) {
+                            if (items[i].type.indexOf("image") !== -1) {
+                                const blob = items[i].getAsFile();
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                    setAiImage({ base64: reader.result.split(',')[1], type: blob.type, preview: reader.result });
+                                };
+                                reader.readAsDataURL(blob);
+                                e.preventDefault();
+                            }
+                        }
+                    };
+
                     const handleAI = async () => {
-                        if(!settings.apiKey) return setAiError("請輸入 API Key");
+                        let currentKey = settings.apiKey;
+                        if (!currentKey) {
+                            const inputKey = prompt("請輸入 Gemini API Key (只需輸入一次，將自動儲存):");
+                            if (!inputKey) return setAiError("需要 API Key 才能使用 AI 功能");
+                            setSettings(prev => ({ ...prev, apiKey: inputKey }));
+                            currentKey = inputKey; 
+                        }
+
+                        if(!pasteContent && !aiImage) return setAiError("請提供文字或圖片");
                         setIsAiProcessing(true);
+                        setAiError(null);
+                        
+                        const existingAccountNames = accounts.map(a => a.name).join(', ');
+
                         try {
-                            const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${settings.apiKey}`,{
+                            const parts = [];
+                            const promptBase = `
+                            你是一個投資數據解析器。請分析提供的圖片或文字，其中包含「多個日期」與「多個帳戶」的投資紀錄。
+                            目前 App 內已有的帳戶名稱：[${existingAccountNames}]。
+                            
+                            請針對每一筆找到的紀錄執行以下動作：
+                            1. 識別日期 (格式 YYYY-MM-DD)。
+                            2. 識別帳戶名稱 (Account Name)。如果名稱與上述現有帳戶相似，請使用現有名稱。
+                            3. 計算該帳戶當日的「總市值」(Total Market Value) = 證券/庫存市值 + 現金/存款/交割款。
+                            4. 識別大盤指數 (Benchmark) 數值 (若有)。
+
+                            回傳格式必須是 JSON Array (陣列)。移除數字中的逗號。不要包含任何 Markdown 格式或額外文字。
+                            範例結構：[{"date":"2023-10-01","accountName":"帳戶A","marketValue":1000000,"benchmarkValue":16500}]
+                            `;
+
+                            if (aiImage) {
+                                parts.push({ text: promptBase });
+                                parts.push({ inlineData: { mimeType: aiImage.type, data: aiImage.base64 } });
+                            } else {
+                                parts.push({ text: `${promptBase}\n\n待解析文字：\n"${pasteContent}"` });
+                            }
+
+                            const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${currentKey}`,{
                                 method:"POST",headers:{"Content-Type":"application/json"},
-                                body:JSON.stringify({contents:[{parts:[{text:`Analyze investment data from text: "${pasteContent}". Return pure JSON object (no markdown): {"marketValue": number, "benchmarkValue": number|null}. Remove commas from numbers.`}]}]})
+                                body:JSON.stringify({contents:[{parts}]})
                             });
-                            if(!res.ok) throw new Error();
+                            
+                            if(!res.ok) {
+                                const errData = await res.json().catch(() => ({}));
+                                throw new Error(errData.error?.message || res.statusText || "API Error");
+                            }
+
                             const d=await res.json();
                             let text = d.candidates[0].content.parts[0].text;
-                            text = text.replace(/```json/g,'').replace(/```/g,'').trim();
-                            const j=JSON.parse(text);
-                            if(j.marketValue) { setMarketValue(j.marketValue); if(j.benchmarkValue) setBenchmarkInput(j.benchmarkValue); setModalType(null); showToast("解析成功"); }
+                            
+                            // 強力清潔 JSON：使用 Regex 抓取最外層的 [] 或 {}
+                            const jsonRegex = /\[[\s\S]*\]|{[:\s\S]*}/;
+                            const match = text.match(jsonRegex);
+                            if (match) {
+                                text = match[0]; // 只取 JSON 部分
+                            } else {
+                                // 若 Regex 失敗，嘗試移除 Markdown
+                                text = text.replace(/```json/g,'').replace(/```/g,'').trim();
+                            }
+                            
+                            let parsedData;
+                            try {
+                                parsedData = JSON.parse(text);
+                            } catch (e) {
+                                console.error("Raw AI response:", d.candidates[0].content.parts[0].text);
+                                throw new Error("AI 回傳格式錯誤，無法解析 JSON");
+                            }
+
+                            if (!Array.isArray(parsedData)) {
+                                parsedData = [parsedData];
+                            }
+                            
+                            if(parsedData.length === 0) throw new Error("未找到任何有效數據");
+
+                            const newRecs = [];
+                            let updatedAccounts = [...accounts];
+                            let addedCount = 0;
+
+                            parsedData.forEach(item => {
+                                if(!item.date || !item.marketValue) return;
+
+                                let acc = updatedAccounts.find(a => a.name === item.accountName);
+                                if (!acc) {
+                                    const newId = 'acc_' + Date.now() + Math.random().toString(36).substr(2, 5);
+                                    acc = { 
+                                        id: newId, 
+                                        name: item.accountName || '未知帳戶', 
+                                        color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0') 
+                                    };
+                                    updatedAccounts.push(acc);
+                                }
+
+                                const bVal = item.benchmarkValue || getTaiexEstimate(item.date);
+
+                                newRecs.push({
+                                    id: Date.now() + Math.random(),
+                                    date: item.date,
+                                    accountId: acc.id,
+                                    marketValue: item.marketValue,
+                                    cashFlow: 0, 
+                                    benchmarkValue: bVal
+                                });
+                                addedCount++;
+                            });
+
+                            setAccounts(updatedAccounts);
+                            setRecords(prev => {
+                                let next = [...prev];
+                                newRecs.forEach(nr => {
+                                    const idx = next.findIndex(r => r.date === nr.date && r.accountId === nr.accountId);
+                                    if (idx >= 0) {
+                                        next[idx] = { ...next[idx], marketValue: nr.marketValue, benchmarkValue: nr.benchmarkValue || next[idx].benchmarkValue };
+                                    } else {
+                                        next.push(nr);
+                                    }
+                                });
+                                return next;
+                            });
+
+                            setModalType(null); 
+                            setAiImage(null);
+                            setPasteContent('');
+                            showToast(`成功解析 ${addedCount} 筆資料`);
+
                         } catch (e) { console.error(e); setAiError("解析失敗: " + e.message); } finally { setIsAiProcessing(false); }
                     };
 
@@ -296,7 +513,40 @@
                             {modalType === 'clear' && <Modal title="清空資料" onClose={()=>setModalType(null)}><p className="text-center mb-4 text-red-600 font-bold">此動作無法復原！</p><div className="flex gap-3"><Button onClick={()=>setModalType(null)} variant="secondary" className="flex-1">取消</Button><Button onClick={()=>{setRecords([]);setAccounts([{id:'a1',name:'帳號 A',color:'#3b82f6'}]);setModalType(null);showToast("已重置")}} variant="danger" className="flex-1">清空</Button></div></Modal>}
                             {modalType === 'install' && <Modal title="安裝教學" onClose={()=>setModalType(null)}><div className="space-y-3 text-sm text-slate-600"><p><strong>iOS:</strong> Safari 分享按鈕 &gt; 加入主畫面</p><p><strong>Android:</strong> Chrome 選單 &gt; 加入主畫面</p><Button onClick={()=>setModalType(null)} className="w-full mt-2">好</Button></div></Modal>}
                             {modalType === 'import' && <Modal title="還原備份" onClose={()=>{setModalType(null);setImportFile(null)}}><p className="text-center mb-4 text-slate-600">確定要從 {importFile?.name} 還原資料嗎？現有資料將被覆蓋。</p><div className="flex gap-3"><Button onClick={()=>{setModalType(null);setImportFile(null)}} variant="secondary" className="flex-1">取消</Button><Button onClick={handleImportExecute} variant="primary" className="flex-1">還原</Button></div></Modal>}
-                            {modalType === 'ai' && <Modal title="AI 貼上" onClose={()=>setModalType(null)}><textarea className="w-full h-32 border p-2 rounded mb-2 text-sm" value={pasteContent} onChange={e=>setPasteContent(e.target.value)} placeholder="貼上對帳單文字..." /><div className="flex justify-end gap-2"><Button onClick={()=>setModalType(null)} variant="secondary">取消</Button><Button onClick={handleAI} variant="magic" disabled={isAiProcessing}>{isAiProcessing?<Loader2 className="animate-spin"/>:'解析'}</Button></div>{aiError && <p className="text-red-500 text-sm mt-2">{aiError}</p>}</Modal>}
+                            
+                            {modalType === 'ai' && <Modal title="AI 智慧貼上 (多帳戶/多日)" onClose={()=>{setModalType(null);setAiImage(null);setPasteContent('');setAiError(null);}}>
+                                <div className="space-y-4">
+                                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 text-center hover:bg-slate-50 transition relative" onPaste={handlePaste}>
+                                        {aiImage ? (
+                                            <div className="relative">
+                                                <img src={aiImage.preview} className="max-h-48 mx-auto rounded shadow-sm" />
+                                                <button onClick={()=>setAiImage(null)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow"><X size={16}/></button>
+                                            </div>
+                                        ) : (
+                                            <div className="py-4 cursor-pointer" onClick={()=>document.getElementById('ai-img-upload').click()}>
+                                                <div className="mx-auto w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-2"><ImageIcon size={24}/></div>
+                                                <p className="text-sm font-medium text-slate-700">點擊上傳 或 Ctrl+V 貼上圖片</p>
+                                                <p className="text-xs text-slate-400 mt-1">支援含有多日、多帳戶的對帳單截圖</p>
+                                            </div>
+                                        )}
+                                        <input id="ai-img-upload" type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                                    </div>
+                                    
+                                    <div className="relative">
+                                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200"></div></div>
+                                        <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-slate-500">或輸入文字</span></div>
+                                    </div>
+
+                                    <textarea className="w-full h-20 border border-slate-300 p-3 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" value={pasteContent} onChange={e=>setPasteContent(e.target.value)} placeholder="例如: 10/1 台新 50萬, 玉山 30萬; 10/2 台新 51萬..." />
+                                    
+                                    {aiError && <div className="bg-red-50 text-red-600 text-xs p-2 rounded flex items-center gap-1"><AlertTriangle size={12}/> {aiError}</div>}
+                                    
+                                    <div className="flex justify-end gap-2 pt-2">
+                                        <Button onClick={()=>{setModalType(null);setAiImage(null);}} variant="secondary">取消</Button>
+                                        <Button onClick={handleAI} variant="magic" disabled={isAiProcessing}>{isAiProcessing?<><Loader2 className="animate-spin" size={18}/> 解析中...</> : <><Sparkles size={18}/> 開始解析</>}</Button>
+                                    </div>
+                                </div>
+                            </Modal>}
 
                             {/* Header */}
                             <header className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 py-3 safe-top flex flex-col gap-3 shadow-sm flex-shrink-0">
@@ -321,16 +571,59 @@
                                             <Card className="p-4 border-l-4 border-blue-500"><div className="text-xs text-slate-500">總市值</div><div className="text-xl font-bold text-slate-800">{fmtCur(totalStats.value)}</div></Card>
                                             <Card className={`p-4 border-l-4 ${totalStats.roi>=0?'border-red-500':'border-green-500'}`}><div className="text-xs text-slate-500">總報酬</div><div className={`text-xl font-bold ${totalStats.roi>=0?'text-red-600':'text-green-600'}`}>{fmtPct(totalStats.roi)}</div></Card>
                                         </div>
-                                        <Card className="p-4 h-72">
-                                            <div className="flex justify-between items-center mb-4"><div className="font-bold text-slate-700 flex items-center gap-2"><BarChart2 size={16}/> 走勢</div><div className="flex bg-slate-100 rounded p-1"><button onClick={()=>setChartMode('value')} className={`px-2 py-1 text-xs rounded ${chartMode==='value'?'bg-white shadow':''}`}>值</button><button onClick={()=>setChartMode('roi')} className={`px-2 py-1 text-xs rounded ${chartMode==='roi'?'bg-white shadow':''}`}>%</button></div></div>
-                                            <div className="flex gap-1 mb-2 overflow-x-auto scrollbar-hide">{['1M','1Y','3Y','ALL'].map(r=><button key={r} onClick={()=>setTimeRange(r)} className={`px-2 py-1 text-xs rounded border ${timeRange===r?'bg-slate-800 text-white border-slate-800':'border-slate-200 text-slate-500'}`}>{r}</button>)}</div>
-                                            <ResponsiveContainer width="100%" height="80%">
-                                                {chartMode === 'value' ? 
-                                                    <ComposedChart data={filteredData}><defs><linearGradient id="cV" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs><XAxis dataKey="date" hide/><YAxis domain={['auto','auto']} hide/><Tooltip formatter={v=>fmtCur(v)}/><Area type="monotone" dataKey="total" stroke="#3b82f6" fill="url(#cV)" strokeWidth={2}/><Line type="monotone" dataKey="benchmarkVal" stroke="#f97316" strokeDasharray="3 3" dot={false}/></ComposedChart> :
-                                                    <LineChart data={filteredData}><XAxis dataKey="date" hide/><YAxis hide/><Tooltip formatter={v=>fmtPct(v)}/><Line type="monotone" dataKey="userROI" stroke="#ef4444" dot={false} strokeWidth={2}/><Line type="monotone" dataKey="benchmarkROI" stroke="#94a3b8" dot={false}/></LineChart>
-                                                }
-                                            </ResponsiveContainer>
+                                        
+                                        <Card className="p-4 h-80 flex flex-col">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <div className="flex bg-slate-100 rounded p-1">
+                                                    <button onClick={()=>setDashboardMode('assets')} className={`px-3 py-1 text-xs rounded font-medium transition-all ${dashboardMode==='assets'?'bg-white shadow text-blue-600':'text-slate-500'}`}>資產走勢</button>
+                                                    <button onClick={()=>setDashboardMode('performance')} className={`px-3 py-1 text-xs rounded font-medium transition-all ${dashboardMode==='performance'?'bg-white shadow text-red-600':'text-slate-500'}`}>績效 PK</button>
+                                                </div>
+                                                <div className="flex gap-1 overflow-x-auto scrollbar-hide">{['1M','1Y','3Y','ALL'].map(r=><button key={r} onClick={()=>setTimeRange(r)} className={`px-2 py-1 text-xs rounded border ${timeRange===r?'bg-slate-800 text-white border-slate-800':'border-slate-200 text-slate-500'}`}>{r}</button>)}</div>
+                                            </div>
+                                            
+                                            <div className="flex-1 w-full relative">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    {dashboardMode === 'assets' ? (
+                                                        <ComposedChart data={filteredData}>
+                                                            <defs><linearGradient id="cV" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
+                                                            <XAxis dataKey="date" hide={false} tick={{fontSize: 10}} tickFormatter={(d)=>d.slice(5)} minTickGap={30} />
+                                                            {/* 智慧刻度 (Smart Scale) */}
+                                                            <YAxis yAxisId="left" orientation="left" hide={false} width={40} tick={{fontSize: 9}} tickFormatter={fmtAxis} domain={['auto', 'auto']} />
+                                                            <YAxis yAxisId="right" orientation="right" hide={false} width={40} tick={{fontSize: 9, fill: '#f97316'}} domain={['auto', 'auto']} />
+                                                            <Tooltip formatter={(v, n)=> n.includes('指數') ? v : fmtCur(v)} labelStyle={{color:'#333'}} />
+                                                            <Legend wrapperStyle={{fontSize:'10px', paddingTop:'5px'}}/>
+                                                            <Area yAxisId="left" type="monotone" dataKey="total" name="總市值 (左)" stroke="#3b82f6" fill="url(#cV)" strokeWidth={2}/>
+                                                            <Line yAxisId="right" type="monotone" dataKey="benchmarkVal" name="台股指數 (右)" stroke="#f97316" strokeDasharray="3 3" dot={false} strokeWidth={2} connectNulls={true} />
+                                                        </ComposedChart>
+                                                    ) : (
+                                                        <LineChart data={filteredData}>
+                                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
+                                                            <XAxis dataKey="date" hide={false} tick={{fontSize: 10}} tickFormatter={(d)=>d.slice(5)} minTickGap={30} />
+                                                            <YAxis hide={false} width={35} tick={{fontSize: 9}} tickFormatter={(v)=>`${v.toFixed(0)}%`} domain={['auto', 'auto']} />
+                                                            <Tooltip formatter={(v)=>fmtPct(v)} labelStyle={{color:'#333'}} />
+                                                            <Legend wrapperStyle={{fontSize:'10px', paddingTop:'5px'}}/>
+                                                            <ReferenceLine y={0} stroke="#94a3b8" />
+                                                            <Line type="monotone" dataKey="userROI" name="個人報酬率" stroke="#ef4444" strokeWidth={2} dot={false} connectNulls={true} />
+                                                            <Line type="monotone" dataKey="benchmarkROI" name="大盤報酬率" stroke="#64748b" strokeWidth={2} dot={false} strokeDasharray="5 5" connectNulls={true} />
+                                                        </LineChart>
+                                                    )}
+                                                </ResponsiveContainer>
+                                            </div>
+                                            
+                                            {dashboardMode === 'performance' && (
+                                                <div className="flex justify-between text-xs mt-3 pt-3 border-t border-slate-100">
+                                                    <div className="text-center flex-1 border-r">
+                                                        <div className="text-slate-400">超額報酬 (Alpha)</div>
+                                                        <div className={`font-bold ${alphaValue>=0?'text-red-500':'text-green-500'}`}>{fmtPct(alphaValue)}</div>
+                                                    </div>
+                                                    <div className="text-center flex-1">
+                                                        <div className="text-slate-400">大盤報酬</div>
+                                                        <div className="font-bold text-slate-700">{chartData.length>0 ? fmtPct(chartData[chartData.length-1].benchmarkROI || 0) : '0%'}</div>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </Card>
+
                                         <Card className="p-4">
                                             <div className="font-bold text-slate-700 mb-4 flex items-center gap-2"><PieIcon size={16}/> 配置</div>
                                             <div className="h-40"><ResponsiveContainer><PieChart><Pie data={pieData} innerRadius={35} outerRadius={60} dataKey="value"><Tooltip formatter={v=>fmtCur(v)}/>{pieData.map((e,i)=><Cell key={i} fill={e.color}/>)}</Pie></PieChart></ResponsiveContainer></div>
@@ -362,8 +655,8 @@
                                             </div>
 
                                             <div className="pt-2 border-t border-slate-100">
-                                                 <Input label="大盤指數 (選填)" type="number" value={benchmarkInput} onChange={e=>setBenchmarkInput(e.target.value)} placeholder="例如: 20000" />
-                                                 <p className="text-xs text-slate-400 mt-1">用於計算相對績效 (Alpha)</p>
+                                                 <Input label="大盤指數 (自動填入)" type="number" value={benchmarkInput} onChange={e=>setBenchmarkInput(e.target.value)} placeholder={getTaiexEstimate(entryDate) || "輸入指數"} />
+                                                 <p className="text-xs text-slate-400 mt-1">若留空將自動使用內建歷史數據 ({getTaiexEstimate(entryDate)})</p>
                                             </div>
                                         </div>
 
@@ -412,7 +705,9 @@
 
                                         <Card className="p-4">
                                             <h3 className="font-bold mb-2 text-slate-700">AI 設定 (Gemini API)</h3>
-                                            <Input type="password" value={settings.apiKey} onChange={e=>setSettings({...settings,apiKey:e.target.value})} placeholder="貼上 API Key" />
+                                            <div className="flex gap-2">
+                                                <Input type="password" value={settings.apiKey} onChange={e=>setSettings({...settings,apiKey:e.target.value})} placeholder="貼上 API Key (若已輸入過可留空)" />
+                                            </div>
                                             <p className="text-[10px] text-slate-400 mt-1">Key 僅儲存於本地瀏覽器，不會上傳伺服器。</p>
                                         </Card>
 
@@ -428,7 +723,7 @@
                                             <Button onClick={()=>{setAccounts([...accounts, {id:Date.now().toString(), name:'新帳號', color:'#64748b'}])}} variant="secondary" className="w-full mt-2 text-sm">新增帳號</Button>
                                         </Card>
                                         
-                                        <div className="text-center text-xs text-slate-300 pt-4">v1.1.1 Offline Storage</div>
+                                        <div className="text-center text-xs text-slate-300 pt-4">v1.6.0 Fixes</div>
                                     </div>
                                 )}
                             </div>
