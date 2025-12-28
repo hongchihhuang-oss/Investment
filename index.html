@@ -11,25 +11,20 @@
     <!-- 1. 樣式庫 (Tailwind) -->
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- 2. 核心函式庫 (順序很重要) -->
-    <!-- React Core -->
+    <!-- 2. 核心函式庫 -->
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-    
-    <!-- PropTypes (Recharts 依賴項，必須在 Recharts 之前載入) -->
+    <!-- PropTypes (Recharts 依賴) -->
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
-    
-    <!-- Recharts (圖表庫) -->
+    <!-- Recharts -->
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.10.3/Recharts.min.js"></script>
-    
-    <!-- 3. Babel 解析器 -->
+    <!-- Babel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 
     <style>
         body { -webkit-tap-highlight-color: transparent; user-select: none; }
         .safe-top { padding-top: env(safe-area-inset-top); }
-        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-        /* 隱藏捲軸但保留功能 */
+        /* 隱藏捲軸 */
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -38,94 +33,67 @@
 </head>
 <body class="bg-slate-50 text-slate-900">
 
-    <!-- 啟動畫面 / 錯誤提示 -->
     <div id="loader" class="fixed inset-0 flex flex-col items-center justify-center bg-white z-50">
         <div class="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-        <p id="loader-text" class="text-slate-500 font-bold">正在啟動系統...</p>
-        <p id="error-text" class="text-red-500 text-sm mt-2 hidden text-center px-4"></p>
-        <button id="retry-btn" onclick="window.location.reload()" class="hidden mt-4 px-4 py-2 bg-slate-100 rounded text-slate-600">重試</button>
+        <p class="text-slate-500 font-bold">正在啟動...</p>
     </div>
 
-    <!-- React 根目錄 -->
     <div id="root"></div>
 
-    <!-- 系統檢查腳本 -->
-    <script>
-        // 檢查必要函式庫是否載入
-        window.onload = function() {
-            setTimeout(function() {
-                const missing = [];
-                if (!window.React) missing.push("React");
-                if (!window.ReactDOM) missing.push("ReactDOM");
-                // Recharts 載入失敗通常是因為 PropTypes，如果前面報錯，這裡也會抓到
-                if (!window.Recharts) missing.push("Recharts");
-                
-                if (missing.length > 0) {
-                    document.getElementById('loader').querySelector('.animate-spin').style.display = 'none';
-                    document.getElementById('loader-text').innerText = "啟動失敗";
-                    document.getElementById('error-text').innerText = "無法載入必要元件 (" + missing.join(", ") + ")。\n請檢查網路連線後重試。";
-                    document.getElementById('error-text').style.display = 'block';
-                    document.getElementById('retry-btn').style.display = 'block';
-                }
-            }, 3000); // 3秒後檢查
-        };
-    </script>
-
-    <!-- 主程式邏輯 -->
     <script type="text/babel">
-        // 使用 IIFE 避免全域變數污染
         (function() {
             try {
                 const { useState, useEffect, useMemo, useRef } = React;
-                // 安全解構 Recharts，避免未載入時報錯
                 const R = window.Recharts || {};
-                // 提供預設元件以防 Recharts 載入失敗
-                const AreaChart = R.AreaChart || (() => null);
-                const Area = R.Area || (() => null);
-                const LineChart = R.LineChart || (() => null);
-                const Line = R.Line || (() => null);
-                const XAxis = R.XAxis || (() => null);
-                const YAxis = R.YAxis || (() => null);
-                const CartesianGrid = R.CartesianGrid || (() => null);
-                const Tooltip = R.Tooltip || (() => null);
-                const Legend = R.Legend || (() => null);
-                const ResponsiveContainer = R.ResponsiveContainer || (({children}) => <div>{children}</div>);
-                const ComposedChart = R.ComposedChart || (() => null);
-                const PieChart = R.PieChart || (() => null);
-                const Pie = R.Pie || (() => null);
-                const Cell = R.Cell || (() => null);
+                const { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell } = R;
 
-                // --- Icons (使用 SVG 路徑，不依賴外部 icon font) ---
-                const Icon = ({ d, size = 24, className = "", ...props }) => (
-                    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+                // --- 1. 圖示系統修正 ---
+                // 定義 SVG Path 資料 (全部補齊)
+                const ICON_PATHS = {
+                    TrendingUp: ["M23 6L13.5 15.5L8.5 10.5L1 18", "M17 6H23V12"], 
+                    PlusCircle: ["M12 22C17.5 22 22 17.5 22 12C22 6.5 17.5 2 12 2C6.5 2 2 6.5 2 12C2 17.5 6.5 22 12 22Z", "M12 8V16", "M8 12H16"],
+                    Trash2: ["M3 6H21", "M19 6V20C19 21.1 18.1 22 17 22H7C5.9 22 5 21.1 5 20V6", "M8 6V4C8 2.9 8.9 2 10 2H14C15.1 2 16 2.9 16 4V6", "M10 11V17", "M14 11V17"],
+                    Save: ["M19 21H5C3.9 21 3 20.1 3 19V5C3 3.9 3.9 3 5 3H16L21 8V19C21 20.1 20.1 21 19 21Z", "M17 21V13H7V21", "M7 3V8H15"],
+                    Settings: ["M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z", "M19.4 15C19.5823 14.0322 19.3323 13.0425 18.7303 12.2472L19.4373 11.5402C19.8279 11.1496 19.8279 10.5164 19.4373 10.1258L17.3159 8.0044C16.9253 7.6138 16.2921 7.6138 15.9016 8.0044L15.1946 8.7114C14.3993 8.1094 13.4096 7.8594 12.4418 8.0417V7.0417C12.4418 6.4894 11.9941 6.0417 11.4418 6.0417H8.4418C7.8895 6.0417 7.4418 6.4894 7.4418 7.0417V8.0417C6.474 7.8594 5.4843 8.1094 4.689 8.7114L3.982 8.0044C3.5914 7.6138 2.9582 7.6138 2.5676 8.0044L0.4462 10.1258C0.0556 10.5164 0.0556 11.1496 0.4462 11.5402L1.1532 12.2472C0.5512 13.0425 0.3012 14.0322 0.4835 15H-0.5165C-1.0688 15 -1.5165 15.4477 -1.5165 16V19C-1.5165 19.5523 -1.0688 20 -0.5165 20H0.4835C0.6658 20.9678 0.9158 21.9575 1.5178 22.7528L0.8108 23.4598C0.4202 23.8504 0.4202 24.4836 0.8108 24.8742L2.9322 26.9956C3.3228 27.3862 3.956 27.3862 4.3466 26.9956L5.0536 26.2886C5.8489 26.8906 6.8386 27.1406 7.8064 26.9583V27.9583C7.8064 28.5106 8.2541 28.9583 8.8064 28.9583H11.8064C12.3587 28.9583 12.8064 28.5106 12.8064 27.9583V26.9583C13.7742 27.1406 14.7639 26.8906 15.5592 26.2886L16.2662 26.9956C16.6568 27.3862 17.29 27.3862 17.6806 26.9956L19.802 24.8742C20.1926 24.4836 20.1926 23.8504 19.802 23.4598L19.095 22.7528C19.697 21.9575 19.947 20.9678 19.7647 20H20.7647C21.317 20 21.7647 19.5523 21.7647 19V16C21.7647 15.4477 21.317 15 20.7647 15H19.4Z"], // Simplified
+                    Info: ["M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z", "M12 16V12", "M12 8H12.01"],
+                    BarChart2: ["M18 20V10", "M12 20V4", "M6 20V14"],
+                    Sparkles: ["M12 3L10.088 8.736L4.352 10.648L10.088 12.56L12 18.296L13.912 12.56L19.648 10.648L13.912 8.736L12 3Z"],
+                    AlertCircle: ["M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z", "M12 8V12", "M12 16H12.01"],
+                    Loader2: ["M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3"],
+                    Database: ["M12 5C16.97 5 21 3.66 21 2C21 0.34 16.97 -1 12 -1C7.03 -1 3 0.34 3 2C3 3.66 7.03 5 12 5Z", "M21 12C21 13.66 16.97 15 12 15C7.03 15 3 13.66 3 12", "M3 5V19C3 20.66 7.03 22 12 22C16.97 22 21 20.66 21 19V5"],
+                    RotateCcw: ["M1 4V10H7", "M3.51 15C4.2655 17.2759 5.92212 19.1171 8.16723 20.1476C10.4123 21.178 13.0641 21.3151 15.42 20.5282C17.7758 19.7413 19.6465 18.0933 20.6276 15.939C21.6088 13.7848 21.6212 11.2965 20.66 9.14L3.51 15Z"], // Simplified
+                    Check: ["M20 6L9 17L4 12"],
+                    X: ["M18 6L6 18", "M6 6L18 18"],
+                    Download: ["M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15", "M7 10L12 15L17 10", "M12 15V3"],
+                    Upload: ["M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15", "M17 8L12 3L7 8", "M12 3V15"],
+                    AlertTriangle: ["M10.29 3.86L1.82 18C1.64537 18.3024 1.55296 18.6453 1.55199 18.9945C1.55103 19.3437 1.64155 19.6871 1.81442 19.9905C1.98729 20.2939 2.23659 20.5467 2.5377 20.7239C2.8388 20.9011 3.18126 20.9967 3.53 21H20.47C20.8187 20.9967 21.1612 20.9011 21.4623 20.7239C21.7634 20.5467 22.0127 20.2939 22.1856 19.9905C22.3584 19.6871 22.449 19.3437 22.448 18.9945C22.447 18.6453 22.3546 18.3024 22.18 18L13.71 3.86C13.5317 3.56611 13.2807 3.32312 12.9812 3.15449C12.6817 2.98587 12.3437 2.89728 12 2.89728C11.6563 2.89728 11.3183 2.98587 11.0188 3.15449C10.7193 3.32312 10.4683 3.56611 10.29 3.86V3.86Z", "M12 9V13", "M12 17H12.01"],
+                    Share: ["M4 12V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V12", "M16 6L12 2L8 6", "M12 2V15"],
+                    Smartphone: ["M5 2H19C20.1 2 21 2.9 21 4V20C21 21.1 20.1 22 19 22H5C3.9 22 3 21.1 3 20V4C3 2.9 3.9 2 5 2Z", "M12 18H12.01"],
+                    Maximize: ["M8 3H5C4.46957 3 3.96086 3.21071 3.58579 3.58579C3.21071 3.96086 3 4.46957 3 5V8", "M16 3H19C19.5304 3 20.0391 3.21071 20.4142 3.58579C20.7893 3.96086 21 4.46957 21 5V8", "M21 16V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H16", "M8 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V16"],
+                    Minimize: ["M8 3V6H3", "M21 8H18V3", "M21 16H18V21", "M3 16H6V21"],
+                    Eye: ["M1 12S5 4 12 4S23 12 23 12S19 20 12 20S1 12 1 12Z", "M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z"],
+                    EyeOff: ["M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94", "M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 012.16 3.19", "M1 1L23 23"],
+                    FileText: ["M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z", "M14 2V8H20", "M16 13H8", "M16 17H8", "M10 9H8"],
+                    PieChart: ["M21.21 15.89A10 10 0 118 2.83", "M22 12A10 10 0 0012 2V12H22Z"]
+                };
+
+                const Icon = ({ d, size = 24, className = "" }) => (
+                    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
                         {Array.isArray(d) ? d.map((p, i) => <path key={i} d={p} />) : <path d={d} />}
                     </svg>
                 );
+
+                // 自動生成所有 Icon Components
+                const Icons = {};
+                Object.keys(ICON_PATHS).forEach(key => {
+                    Icons[key] = (props) => <Icon d={ICON_PATHS[key]} {...props} />;
+                });
+                // 命名對應修補
+                const { TrendingUp, PlusCircle, Trash2, Save, Settings, BarChart2, Sparkles, AlertCircle, Loader2, Database, RotateCcw, Check, X, Download, Upload, AlertTriangle, Share, Smartphone, Maximize, Minimize, Eye, EyeOff, FileText, PieChart: PieIcon } = Icons;
+
+                // --- 2. 共用元件 ---
+                const Card = ({ children, className = "" }) => <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className}`}>{children}</div>;
                 
-                // 簡易圖示定義
-                const ICONS = {
-                    TrendingUp: <polyline points="23 6 13.5 15.5 8.5 10.5 1 18 17 6 23 6 23 12" />, 
-                    Menu: "M3 12h18M3 6h18M3 18h18",
-                    Plus: "M12 5v14M5 12h14",
-                    Trash: "M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2",
-                    Save: "M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z",
-                    Settings: "M12 15a3 3 0 100-6 3 3 0 000 6z M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z",
-                    Chart: "M18 20V10M12 20V4M6 20v-6",
-                    Pie: "M21.21 15.89A10 10 0 118 2.83M22 12A10 10 0 0012 2v10z",
-                    Download: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3",
-                    Upload: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12",
-                    Eye: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 9a3 3 0 100 6 3 3 0 000-6z",
-                    EyeOff: "M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24 M1 1l22 22",
-                    Sparkles: "M12 3l-1.9 5.8a2 2 0 01-1.3 1.3L3 12l5.8 1.9a2 2 0 011.3 1.3L12 21l1.9-5.8a2 2 0 011.3-1.3L21 12l-5.8-1.9a2 2 0 01-1.3-1.3L12 3z"
-                };
-
-                // --- UI Components ---
-                const Card = ({ children, className = "" }) => (
-                    <div className={`bg-white rounded-xl shadow-sm border border-slate-200 ${className}`}>
-                        {children}
-                    </div>
-                );
-
                 const Button = ({ onClick, children, variant = "primary", className = "", disabled = false, size = "md" }) => {
                     const baseStyle = "rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transform select-none";
                     const sizes = { sm: "px-3 py-1.5 text-sm", md: "px-4 py-3" };
@@ -138,51 +106,22 @@
                         warning: "bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-200",
                         ghost: "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
                     };
-                    return (
-                        <button onClick={onClick} className={`${baseStyle} ${sizes[size]} ${variants[variant]} ${className}`} disabled={disabled}>
-                            {children}
-                        </button>
-                    );
+                    return <button onClick={onClick} className={`${baseStyle} ${sizes[size]} ${variants[variant]} ${className}`} disabled={disabled}>{children}</button>;
                 };
 
-                const Input = ({ label, value, onChange, type = "text", placeholder = "", className="" }) => (
-                    <div className={`flex flex-col gap-1 w-full ${className}`}>
-                        {label && <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</label>}
-                        <input
-                            type={type}
-                            value={value}
-                            onChange={onChange}
-                            placeholder={placeholder}
-                            className="border border-slate-300 rounded-lg px-3 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full text-base bg-white appearance-none"
-                        />
-                    </div>
+                const Input = ({ label, value, onChange, type = "text", placeholder = "" }) => (
+                    <div className="flex flex-col gap-1 w-full">{label && <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</label>}<input type={type} value={value} onChange={onChange} placeholder={placeholder} className="border border-slate-300 rounded-lg px-3 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full text-base bg-white appearance-none" /></div>
                 );
 
                 const Select = ({ label, value, onChange, options }) => (
-                    <div className="flex flex-col gap-1 w-full">
-                        {label && <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</label>}
-                        <div className="relative">
-                            <select
-                                value={value}
-                                onChange={onChange}
-                                className="border border-slate-300 rounded-lg px-3 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full text-base bg-white appearance-none"
-                            >
-                                {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                            </select>
-                            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
-                                <svg className="fill-current h-4 w-4" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-                            </div>
-                        </div>
-                    </div>
+                    <div className="flex flex-col gap-1 w-full">{label && <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</label>}<div className="relative"><select value={value} onChange={onChange} className="border border-slate-300 rounded-lg px-3 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full text-base bg-white appearance-none">{options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select><div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500"><svg className="fill-current h-4 w-4" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg></div></div></div>
                 );
 
-                // --- App Component ---
+                // --- 3. App 主邏輯 ---
                 const App = () => {
-                    // ... (Code logic remains the same, ensuring Card is used after definition) ...
-                    // Safe Loading
                     const safeLoad = (key, def) => { try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : def; } catch { return def; } };
                     const [settings, setSettings] = useState(() => safeLoad('inv_settings', { benchmarkName: '台股加權指數', apiKey: '', lastBackupDate: null }));
-                    const [accounts, setAccounts] = useState(() => safeLoad('inv_accounts', [{ id: 'acc1', name: '帳號 A', color: '#3b82f6' }, { id: 'acc2', name: '帳號 B', color: '#10b981' }, { id: 'acc3', name: '帳號 C', color: '#f59e0b' }]));
+                    const [accounts, setAccounts] = useState(() => safeLoad('inv_accounts', [{ id: 'a1', name: '帳號 A', color: '#3b82f6' }, { id: 'a2', name: '帳號 B', color: '#10b981' }, { id: 'a3', name: '帳號 C', color: '#f59e0b' }]));
                     const [records, setRecords] = useState(() => safeLoad('inv_records', []));
 
                     const [activeTab, setActiveTab] = useState('dashboard');
@@ -195,7 +134,7 @@
                     const [isPrivacyMode, setIsPrivacyMode] = useState(false);
                     
                     const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0]);
-                    const [selectedAccount, setSelectedAccount] = useState(accounts.length > 0 ? accounts[0].id : '');
+                    const [selectedAccount, setSelectedAccount] = useState(accounts.length>0 ? accounts[0].id : '');
                     const [marketValue, setMarketValue] = useState('');
                     const [cashFlow, setCashFlow] = useState('0');
                     const [flowType, setFlowType] = useState('none');
@@ -210,169 +149,140 @@
                     const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6366f1'];
 
                     // Effects
-                    useEffect(() => { try { localStorage.setItem('inv_accounts', JSON.stringify(accounts)); } catch{} }, [accounts]);
-                    useEffect(() => { try { localStorage.setItem('inv_records', JSON.stringify(records)); } catch{} }, [records]);
-                    useEffect(() => { try { localStorage.setItem('inv_settings', JSON.stringify(settings)); } catch{} }, [settings]);
-                    useEffect(() => { if (accounts.length > 0 && !accounts.find(a => a.id === selectedAccount)) setSelectedAccount(accounts[0].id); }, [accounts, selectedAccount]);
-                    
-                    useEffect(() => {
-                        const handleFs = () => setIsFullscreen(!!document.fullscreenElement);
-                        document.addEventListener("fullscreenchange", handleFs);
-                        return () => document.removeEventListener("fullscreenchange", handleFs);
-                    }, []);
+                    useEffect(() => { try{localStorage.setItem('inv_accounts', JSON.stringify(accounts));}catch{} }, [accounts]);
+                    useEffect(() => { try{localStorage.setItem('inv_records', JSON.stringify(records));}catch{} }, [records]);
+                    useEffect(() => { try{localStorage.setItem('inv_settings', JSON.stringify(settings));}catch{} }, [settings]);
+                    useEffect(() => { if(accounts.length>0 && !accounts.find(a=>a.id===selectedAccount)) setSelectedAccount(accounts[0].id); }, [accounts, selectedAccount]);
+                    useEffect(() => { const h=()=>setIsFullscreen(!!document.fullscreenElement); document.addEventListener("fullscreenchange",h); return ()=>document.removeEventListener("fullscreenchange",h); }, []);
+                    useEffect(() => { if(records.length===0)return; const last=settings.lastBackupDate?new Date(settings.lastBackupDate):null; if(!last||(new Date()-last>30*86400000)) setShowBackupAlert(true); else setShowBackupAlert(false); }, [settings.lastBackupDate, records.length]);
+                    useEffect(() => { document.getElementById('loader').style.display='none'; }, []);
 
-                    useEffect(() => {
-                        if (records.length === 0) return;
-                        const last = settings.lastBackupDate ? new Date(settings.lastBackupDate) : null;
-                        if (!last || (new Date() - last > 30 * 86400000)) setShowBackupAlert(true);
-                        else setShowBackupAlert(false);
-                    }, [settings.lastBackupDate, records.length]);
+                    // Helpers
+                    const showToast = (m) => { setNotification(m); setTimeout(()=>setNotification(null), 3000); };
+                    const toggleFs = () => { if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else if(document.exitFullscreen) document.exitFullscreen().catch(()=>{}); };
+                    const fmtCur = (v) => isPrivacyMode ? '****' : new Intl.NumberFormat('zh-TW',{maximumFractionDigits:0}).format(v);
+                    const fmtPct = (v) => `${v>0?'+':''}${v?.toFixed(2)}%`;
 
-                    useEffect(() => { document.getElementById('loader').style.display = 'none'; }, []);
+                    // Logic
+                    const sortedRecs = useMemo(()=>[...records].sort((a,b)=>new Date(a.date)-new Date(b.date)), [records]);
+                    useEffect(()=>{ if(sortedRecs.length>0 && !benchmarkInput && sortedRecs[sortedRecs.length-1].benchmarkValue) setBenchmarkInput(sortedRecs[sortedRecs.length-1].benchmarkValue); },[sortedRecs]);
 
-                    // Utils
-                    const showToast = (msg) => { setNotification(msg); setTimeout(() => setNotification(null), 3000); };
-                    const toggleFullscreen = () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else if (document.exitFullscreen) document.exitFullscreen().catch(()=>{}); };
-                    const formatCurrency = (val) => isPrivacyMode ? '****' : new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(val);
-                    const formatPercent = (val) => `${val > 0 ? '+' : ''}${val?.toFixed(2)}%`;
-
-                    // Logic & Render
-                    const sortedRecords = useMemo(() => [...records].sort((a, b) => new Date(a.date) - new Date(b.date)), [records]);
-                    
-                    useEffect(() => {
-                        if (sortedRecords.length > 0 && !benchmarkInput) {
-                            const last = sortedRecords[sortedRecords.length-1];
-                            if (last.benchmarkValue) setBenchmarkInput(last.benchmarkValue);
-                        }
-                    }, [sortedRecords]);
-
-                    const accountStats = useMemo(() => {
-                        const stats = {};
-                        accounts.forEach(acc => stats[acc.id] = { name: acc.name, color: acc.color, currentValue: 0, totalInvested: 0, profitLoss: 0, roi: 0 });
-                        accounts.forEach(acc => {
-                            const recs = sortedRecords.filter(r => r.accountId === acc.id);
-                            if (recs.length === 0) return;
-                            const first = recs[0];
-                            const init = parseFloat(first.marketValue) - parseFloat(first.cashFlow);
-                            const flows = recs.reduce((sum, r) => sum + parseFloat(r.cashFlow), 0);
-                            const last = recs[recs.length - 1];
-                            const netInvested = init + flows;
-                            const current = parseFloat(last.marketValue);
-                            stats[acc.id] = { name: acc.name, color: acc.color, currentValue: current, totalInvested: netInvested, profitLoss: current - netInvested, roi: netInvested !== 0 ? ((current - netInvested) / netInvested) * 100 : 0 };
+                    const accStats = useMemo(()=>{
+                        const res={}; accounts.forEach(a=>res[a.id]={name:a.name,color:a.color,currentValue:0,totalInvested:0,roi:0});
+                        accounts.forEach(a=>{
+                            const rs=sortedRecs.filter(r=>r.accountId===a.id);
+                            if(rs.length===0) return;
+                            const f=rs[0];
+                            const init=parseFloat(f.marketValue)-parseFloat(f.cashFlow);
+                            const flows=rs.reduce((s,r)=>s+parseFloat(r.cashFlow),0);
+                            const inv=init+flows;
+                            const cur=parseFloat(rs[rs.length-1].marketValue);
+                            res[a.id]={...res[a.id], currentValue:cur, totalInvested:inv, roi:inv?((cur-inv)/inv)*100:0};
                         });
-                        return stats;
-                    }, [accounts, sortedRecords]);
+                        return res;
+                    },[accounts,sortedRecs]);
 
-                    const totalStats = useMemo(() => {
-                        let v = 0, i = 0;
-                        Object.values(accountStats).forEach(s => { v += s.currentValue; i += s.totalInvested; });
-                        return { value: v, invested: i, pl: v - i, roi: i !== 0 ? ((v - i) / i) * 100 : 0 };
-                    }, [accountStats]);
+                    const totalStats = useMemo(()=>{
+                        let v=0,i=0; Object.values(accStats).forEach(s=>{v+=s.currentValue;i+=s.totalInvested;});
+                        return {value:v, invested:i, pl:v-i, roi:i?((v-i)/i)*100:0};
+                    },[accStats]);
 
-                    const pieData = useMemo(() => Object.values(accountStats).filter(s => s.currentValue > 0).map((s, idx) => ({ name: s.name, value: s.currentValue, color: s.color || PIE_COLORS[idx % PIE_COLORS.length] })), [accountStats]);
+                    const pieData = useMemo(()=>Object.values(accStats).filter(s=>s.currentValue>0).map((s,i)=>({name:s.name,value:s.currentValue,color:s.color||PIE_COLORS[i%PIE_COLORS.length]})),[accStats]);
 
-                    const chartData = useMemo(() => {
-                        if (sortedRecords.length === 0) return [];
-                        const dates = [...new Set(sortedRecords.map(r => r.date))].sort();
-                        const result = [];
-                        let initBench = parseFloat(sortedRecords.find(r=>r.benchmarkValue)?.benchmarkValue || 0);
-                        const getAccState = (id, d) => {
-                            const rel = sortedRecords.filter(r => r.accountId === id && r.date <= d);
-                            if (rel.length === 0) return null;
-                            const l = rel[rel.length - 1];
-                            const f = rel[0];
-                            const inv = (parseFloat(f.marketValue) - parseFloat(f.cashFlow)) + rel.reduce((s,r) => s + parseFloat(r.cashFlow), 0);
-                            return { val: parseFloat(l.marketValue), inv };
-                        };
-                        dates.forEach(d => {
-                            const pt = { date: d };
-                            let tv = 0, ti = 0;
-                            accounts.forEach(acc => { const s = getAccState(acc.id, d); if (s) { pt[acc.id] = s.val; tv += s.val; ti += s.inv; } });
-                            pt.total = tv; pt.userROI = ti !== 0 ? ((tv - ti) / ti) * 100 : 0;
-                            const bRec = sortedRecords.filter(r => r.date <= d && r.benchmarkValue).pop();
-                            if (bRec) { const curB = parseFloat(bRec.benchmarkValue); pt.benchmarkVal = curB; if (initBench) pt.benchmarkROI = ((curB - initBench) / initBench) * 100; }
-                            result.push(pt);
+                    const chartData = useMemo(()=>{
+                        if(sortedRecs.length===0) return [];
+                        const dates=[...new Set(sortedRecs.map(r=>r.date))].sort();
+                        const res=[];
+                        let initBench = parseFloat(sortedRecs.find(r=>r.benchmarkValue)?.benchmarkValue||0);
+                        
+                        dates.forEach(d=>{
+                            let tv=0, ti=0;
+                            accounts.forEach(a=>{
+                                const rs=sortedRecs.filter(r=>r.accountId===a.id && r.date<=d);
+                                if(rs.length>0) {
+                                    const l=rs[rs.length-1];
+                                    tv+=parseFloat(l.marketValue);
+                                    ti+=(parseFloat(rs[0].marketValue)-parseFloat(rs[0].cashFlow)) + rs.reduce((s,r)=>s+parseFloat(r.cashFlow),0);
+                                }
+                            });
+                            const pt = {date:d, total:tv, userROI:ti?((tv-ti)/ti)*100:0};
+                            const bRec = sortedRecs.filter(r=>r.date<=d && r.benchmarkValue).pop();
+                            if(bRec) {
+                                const b=parseFloat(bRec.benchmarkValue);
+                                pt.benchmarkVal=b;
+                                if(initBench) pt.benchmarkROI=((b-initBench)/initBench)*100;
+                            }
+                            res.push(pt);
                         });
-                        return result;
-                    }, [sortedRecords, accounts]);
+                        return res;
+                    },[sortedRecs,accounts]);
 
-                    const filteredData = useMemo(() => {
-                        if (chartData.length === 0 || timeRange === 'ALL') return chartData;
-                        const last = new Date(chartData[chartData.length - 1].date);
-                        const cut = new Date(last);
-                        if (timeRange === '1D') cut.setDate(last.getDate() - 2);
-                        else if (timeRange === '1W') cut.setDate(last.getDate() - 7);
-                        else if (timeRange === '1Y') cut.setFullYear(last.getFullYear() - 1);
-                        else if (timeRange === '3Y') cut.setFullYear(last.getFullYear() - 3);
-                        else if (timeRange === '5Y') cut.setFullYear(last.getFullYear() - 5);
-                        return chartData.filter(d => new Date(d.date) >= cut);
-                    }, [chartData, timeRange]);
+                    const filteredData = useMemo(()=>{
+                        if(chartData.length===0 || timeRange==='ALL') return chartData;
+                        const last=new Date(chartData[chartData.length-1].date);
+                        const cut=new Date(last);
+                        if(timeRange==='1D') cut.setDate(last.getDate()-2);
+                        else if(timeRange==='1W') cut.setDate(last.getDate()-7);
+                        else if(timeRange==='1Y') cut.setFullYear(last.getFullYear()-1);
+                        else if(timeRange==='3Y') cut.setFullYear(last.getFullYear()-3);
+                        else if(timeRange==='5Y') cut.setFullYear(last.getFullYear()-5);
+                        return chartData.filter(d=>new Date(d.date)>=cut);
+                    },[chartData,timeRange]);
 
-                    // Actions
-                    const addRec = () => {
-                        if (!marketValue || !entryDate || !selectedAccount) { showToast("請填寫完整"); return; }
-                        const flow = parseFloat(cashFlow) || 0;
-                        const finalFlow = flowType === 'deposit' ? Math.abs(flow) : flowType === 'withdraw' ? -Math.abs(flow) : 0;
-                        const newRec = { id: Date.now().toString(), date: entryDate, accountId: selectedAccount, marketValue: parseFloat(marketValue), cashFlow: finalFlow, benchmarkValue: benchmarkInput };
-                        const idx = records.findIndex(r => r.date === entryDate && r.accountId === selectedAccount);
-                        if (idx >= 0) { const n = [...records]; n[idx] = newRec; setRecords(n); showToast("已更新"); } else { setRecords([...records, newRec]); showToast("已儲存"); }
-                        setMarketValue(''); setCashFlow('0'); setFlowType('none');
+                    const handleAdd = () => {
+                        if(!marketValue||!entryDate||!selectedAccount) return showToast("請填寫完整");
+                        const cf = parseFloat(cashFlow)||0;
+                        const finalCf = flowType==='deposit'?Math.abs(cf) : flowType==='withdraw'?-Math.abs(cf) : 0;
+                        const nr = {id:Date.now(), date:entryDate, accountId:selectedAccount, marketValue:parseFloat(marketValue), cashFlow:finalCf, benchmarkValue:benchmarkInput};
+                        setRecords(p=>{
+                            const ex = p.findIndex(r=>r.date===entryDate && r.accountId===selectedAccount);
+                            if(ex>=0) { const n=[...p]; n[ex]=nr; return n; }
+                            return [...p, nr];
+                        });
+                        setMarketValue(''); setCashFlow('0'); setFlowType('none'); showToast("已儲存");
                     };
-                    const delRec = (id) => { setRecords(records.filter(r => r.id !== id)); showToast("已刪除"); };
+
                     const exportJSON = () => {
-                        const d = { accounts, records, settings: { ...settings, lastBackupDate: new Date().toISOString() } };
-                        const url = URL.createObjectURL(new Blob([JSON.stringify(d)], { type: "application/json" }));
-                        const link = document.createElement("a"); link.href = url; link.download = `backup_${new Date().toISOString().split('T')[0]}.json`;
-                        link.click(); setSettings(d.settings); setShowBackupAlert(false); showToast("備份已下載");
+                        const d={accounts,records,settings:{...settings,lastBackupDate:new Date().toISOString()}};
+                        const a=document.createElement('a'); a.href="data:text/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(d)); a.download=`backup_${d.settings.lastBackupDate.split('T')[0]}.json`;
+                        a.click(); setSettings(d.settings); setShowBackupAlert(false); showToast("備份已下載");
                     };
-                    const importJSON = () => {
-                        if (!importFile) return;
-                        const reader = new FileReader();
-                        reader.onload = (e) => { try { const d = JSON.parse(e.target.result); if(d.accounts) { setAccounts(d.accounts); setRecords(d.records || []); if(d.settings) setSettings(d.settings); showToast("還原成功"); setModalType(null); } } catch { showToast("檔案錯誤"); } };
-                        reader.readAsText(importFile);
-                    };
-                    const exportCSV = () => {
-                        const h = ["日期","帳號","市值","資金","大盤"];
-                        const r = records.map(x=>[x.date, accounts.find(a=>a.id===x.accountId)?.name, x.marketValue, x.cashFlow, x.benchmarkValue||''].join(","));
-                        const u = URL.createObjectURL(new Blob(["\uFEFF"+[h.join(","),...r].join("\n")], { type: "text/csv;charset=utf-8;" }));
-                        const l = document.createElement("a"); l.href = u; l.download = "data.csv"; l.click(); showToast("CSV 下載");
-                    };
+
                     const genDemo = () => {
-                        const accs = [{ id: 'a1', name: 'A帳號', color: '#3b82f6' }, { id: 'a2', name: 'B帳號', color: '#10b981' }, { id: 'a3', name: 'C帳號', color: '#f59e0b' }];
+                        const accs = [{id:'a1',name:'帳號 A',color:'#3b82f6'},{id:'a2',name:'帳號 B',color:'#10b981'},{id:'a3',name:'帳號 C',color:'#f59e0b'}];
                         setAccounts(accs);
-                        const recs = [];
-                        let v1 = 800000, v2 = 300000, v3 = 1000000, bench = 9000;
-                        let d = new Date(); d.setDate(d.getDate() - 3650);
-                        for (let i = 0; i < 3650; i++) {
-                            const ds = d.toISOString().split('T')[0];
-                            v1 *= (1 + (Math.random() * 0.035 - 0.017)); v2 *= (1 + (Math.random() * 0.02 - 0.0095)); v3 *= (1 + (Math.random() * 0.003 - 0.0013)); bench *= (1 + (Math.random() * 0.025 - 0.012));
-                            let f1=0, f2=0, f3=0;
-                            if(i>0 && i%365===0) { f1=120000; v1+=f1; f2=60000; v2+=f2; }
-                            if(i>0 && i%1095===150) { f3=-400000; v3+=f3; }
-                            recs.push({id:`d1_${i}`, date:ds, accountId:'a1', marketValue:Math.round(v1), cashFlow:i===0?0:f1, benchmarkValue:Math.round(bench)});
-                            recs.push({id:`d2_${i}`, date:ds, accountId:'a2', marketValue:Math.round(v2), cashFlow:i===0?0:f2, benchmarkValue:Math.round(bench)});
-                            recs.push({id:`d3_${i}`, date:ds, accountId:'a3', marketValue:Math.round(v3), cashFlow:i===0?0:f3, benchmarkValue:Math.round(bench)});
+                        const rs=[]; let v1=800000,v2=300000,v3=1000000,b=9000;
+                        let d=new Date(); d.setDate(d.getDate()-3650);
+                        for(let i=0;i<3650;i++) {
+                            v1*=(1+(Math.random()*0.035-0.017)); v2*=(1+(Math.random()*0.02-0.0095)); v3*=(1+(Math.random()*0.003-0.0013)); b*=(1+(Math.random()*0.025-0.012));
+                            let f1=0,f2=0,f3=0;
+                            if(i>0&&i%365===0){f1=120000;v1+=f1;f2=60000;v2+=f2;}
+                            if(i>0&&i%1095===150){f3=-400000;v3+=f3;}
+                            const ds=d.toISOString().split('T')[0];
+                            rs.push({id:`d1_${i}`,date:ds,accountId:'a1',marketValue:Math.round(v1),cashFlow:i===0?0:f1,benchmarkValue:Math.round(b)});
+                            rs.push({id:`d2_${i}`,date:ds,accountId:'a2',marketValue:Math.round(v2),cashFlow:i===0?0:f2,benchmarkValue:Math.round(b)});
+                            rs.push({id:`d3_${i}`,date:ds,accountId:'a3',marketValue:Math.round(v3),cashFlow:i===0?0:f3,benchmarkValue:Math.round(b)});
                             d.setDate(d.getDate()+1);
                         }
-                        setRecords(recs); setModalType(null); showToast("已生成數據"); setActiveTab('dashboard');
-                    };
-                    const handleClear = () => { setRecords([]); setAccounts([{ id: 'a1', name: '帳號 A', color: '#3b82f6' }]); setModalType(null); showToast("已重置"); };
-                    const handleAI = async () => {
-                        if(!settings.apiKey) { setAiError("請輸入 Key"); return; }
-                        setIsAiProcessing(true);
-                        try {
-                            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${settings.apiKey}`, {
-                                method: "POST", headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ contents: [{ parts: [{ text: `Analyze: "${pasteContent}". Return JSON: {"marketValue": number, "benchmarkValue": number|null}. Remove commas.` }] }] })
-                            });
-                            if(!res.ok) throw new Error();
-                            const d = await res.json();
-                            const j = JSON.parse(d.candidates[0].content.parts[0].text.replace(/```json/g,'').replace(/```/g,'').trim());
-                            if(j.marketValue) { setMarketValue(j.marketValue); if(j.benchmarkValue) setBenchmarkInput(j.benchmarkValue); setModalType(null); showToast("解析成功"); }
-                        } catch { setAiError("失敗"); } finally { setIsAiProcessing(false); }
+                        setRecords(rs); setModalType(null); showToast("已生成數據"); setActiveTab('dashboard');
                     };
 
-                    const Modal = ({ title, children, onClose }) => (
+                    const handleAI = async () => {
+                        if(!settings.apiKey) return setAiError("請輸入 API Key");
+                        setIsAiProcessing(true);
+                        try {
+                            const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${settings.apiKey}`,{
+                                method:"POST",headers:{"Content-Type":"application/json"},
+                                body:JSON.stringify({contents:[{parts:[{text:`Analyze: "${pasteContent}". Return JSON: {"marketValue": number, "benchmarkValue": number|null}. Remove commas.`}]}]})
+                            });
+                            if(!res.ok) throw new Error();
+                            const d=await res.json();
+                            const j=JSON.parse(d.candidates[0].content.parts[0].text.replace(/```json/g,'').replace(/```/g,'').trim());
+                            if(j.marketValue) { setMarketValue(j.marketValue); if(j.benchmarkValue) setBenchmarkInput(j.benchmarkValue); setModalType(null); showToast("解析成功"); }
+                        } catch { setAiError("解析失敗"); } finally { setIsAiProcessing(false); }
+                    };
+
+                    const Modal = ({ title, onClose, children }) => (
                         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}><div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden animate-fade-in" onClick={e=>e.stopPropagation()}><div className="p-5 border-b border-slate-100 flex justify-between items-center"><h3 className="text-xl font-bold text-slate-800">{title}</h3><button onClick={onClose} className="text-slate-400"><X size={24}/></button></div><div className="p-6">{children}</div></div></div>
                     );
 
@@ -380,18 +290,18 @@
                         <div className="pb-24 max-w-lg mx-auto relative">
                             {notification && <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-full shadow-lg z-50 text-sm flex items-center gap-2"><Check size={16} className="text-green-400"/>{notification}</div>}
                             
+                            {/* Modals */}
                             {modalType === 'demo' && <Modal title="生成模擬資料" onClose={()=>setModalType(null)}><p className="text-center mb-4 text-slate-600">將覆蓋現有資料。</p><div className="flex gap-3"><Button onClick={()=>setModalType(null)} variant="secondary" className="flex-1">取消</Button><Button onClick={genDemo} variant="warning" className="flex-1">生成</Button></div></Modal>}
-                            {modalType === 'clear' && <Modal title="清空資料" onClose={()=>setModalType(null)}><p className="text-center mb-4 text-red-600 font-bold">此動作無法復原！</p><div className="flex gap-3"><Button onClick={()=>setModalType(null)} variant="secondary" className="flex-1">取消</Button><Button onClick={handleClear} variant="danger" className="flex-1">清空</Button></div></Modal>}
-                            {modalType === 'import' && <Modal title="還原備份" onClose={()=>{setModalType(null);setImportFile(null)}}><p className="text-center mb-4 text-slate-600">將覆蓋目前資料。</p><div className="flex gap-3"><Button onClick={()=>{setModalType(null);setImportFile(null)}} variant="secondary" className="flex-1">取消</Button><Button onClick={importJSON} variant="primary" className="flex-1">確定</Button></div></Modal>}
-                            {modalType === 'ai' && <Modal title="AI 貼上" onClose={()=>setModalType(null)}><textarea className="w-full h-32 border p-2 rounded mb-2" placeholder="貼上文字..." value={pasteContent} onChange={e=>setPasteContent(e.target.value)}/><div className="flex justify-end gap-2"><Button onClick={()=>setModalType(null)} variant="secondary">取消</Button><Button onClick={handleAI} variant="magic" disabled={isAiProcessing}>{isAiProcessing?<Loader2 className="animate-spin"/>:'解析'}</Button></div>{aiError && <p className="text-red-500 text-sm mt-2">{aiError}</p>}</Modal>}
-                            {modalType === 'install' && <Modal title="安裝教學" onClose={()=>setModalType(null)}><div className="space-y-3 text-sm text-slate-600"><p><strong>iOS (Safari):</strong> 分享 &gt; 加入主畫面</p><p><strong>Android (Chrome):</strong> 選單 &gt; 加入主畫面</p><Button onClick={()=>setModalType(null)} className="w-full mt-2">好</Button></div></Modal>}
+                            {modalType === 'clear' && <Modal title="清空資料" onClose={()=>setModalType(null)}><p className="text-center mb-4 text-red-600 font-bold">此動作無法復原！</p><div className="flex gap-3"><Button onClick={()=>setModalType(null)} variant="secondary" className="flex-1">取消</Button><Button onClick={()=>{setRecords([]);setAccounts([{id:'a1',name:'帳號 A',color:'#3b82f6'}]);setModalType(null);showToast("已重置")}} variant="danger" className="flex-1">清空</Button></div></Modal>}
+                            {modalType === 'install' && <Modal title="安裝教學" onClose={()=>setModalType(null)}><div className="space-y-3 text-sm text-slate-600"><p><strong>iOS:</strong> 分享 &gt; 加入主畫面</p><p><strong>Android:</strong> 選單 &gt; 加入主畫面</p><Button onClick={()=>setModalType(null)} className="w-full mt-2">好</Button></div></Modal>}
+                            {modalType === 'ai' && <Modal title="AI 貼上" onClose={()=>setModalType(null)}><textarea className="w-full h-32 border p-2 rounded mb-2" value={pasteContent} onChange={e=>setPasteContent(e.target.value)} placeholder="貼上文字..." /><div className="flex justify-end gap-2"><Button onClick={()=>setModalType(null)} variant="secondary">取消</Button><Button onClick={handleAI} variant="magic" disabled={isAiProcessing}>{isAiProcessing?<Loader2 className="animate-spin"/>:'解析'}</Button></div>{aiError && <p className="text-red-500 text-sm mt-2">{aiError}</p>}</Modal>}
 
                             <header className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 py-3 safe-top flex flex-col gap-3">
                                 <div className="flex justify-between items-center">
-                                    <div className="flex items-center gap-2"><span className="bg-blue-600 text-white p-1 rounded"><Icon d={ICONS.TrendingUp} size={18}/></span><h1 className="font-bold text-slate-800 text-lg">投資收益管家</h1></div>
+                                    <div className="flex items-center gap-2"><span className="bg-blue-600 text-white p-1 rounded"><TrendingUp size={18}/></span><h1 className="font-bold text-slate-800 text-lg">投資收益管家</h1></div>
                                     <div className="flex gap-2">
-                                        <button onClick={()=>setIsPrivacyMode(!isPrivacyMode)} className="text-slate-400 p-2 rounded-full hover:bg-slate-100"><Icon d={isPrivacyMode?ICONS.EyeOff:ICONS.Eye}/></button>
-                                        <button onClick={toggleFullscreen} className="text-slate-400 p-2 rounded-full hover:bg-slate-100 md:hidden"><Icon d={isFullscreen?ICONS.Minimize:ICONS.Maximize}/></button>
+                                        <button onClick={()=>setIsPrivacyMode(!isPrivacyMode)} className="text-slate-400 p-2 rounded-full hover:bg-slate-100">{isPrivacyMode?<EyeOff size={20}/>:<Eye size={20}/>}</button>
+                                        <button onClick={toggleFs} className="text-slate-400 p-2 rounded-full hover:bg-slate-100 md:hidden">{isFullscreen?<Minimize size={20}/>:<Maximize size={20}/>}</button>
                                     </div>
                                 </div>
                                 <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
@@ -404,22 +314,22 @@
                                     <div className="space-y-4 animate-fade-in">
                                         {showBackupAlert && <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg flex justify-between items-center text-sm text-amber-800"><span className="flex items-center gap-2"><AlertTriangle size={16}/> 建議備份</span><Button onClick={exportJSON} size="sm" variant="warning">備份</Button></div>}
                                         <div className="grid grid-cols-2 gap-4">
-                                            <Card className="p-4 border-l-4 border-blue-500"><div className="text-xs text-slate-500">總市值</div><div className="text-xl font-bold text-slate-800">{formatCurrency(totalStats.value)}</div></Card>
-                                            <Card className={`p-4 border-l-4 ${totalStats.roi>=0?'border-red-500':'border-green-500'}`}><div className="text-xs text-slate-500">總報酬</div><div className={`text-xl font-bold ${totalStats.roi>=0?'text-red-600':'text-green-600'}`}>{formatPercent(totalStats.roi)}</div></Card>
+                                            <Card className="p-4 border-l-4 border-blue-500"><div className="text-xs text-slate-500">總市值</div><div className="text-xl font-bold text-slate-800">{fmtCur(totalStats.value)}</div></Card>
+                                            <Card className={`p-4 border-l-4 ${totalStats.roi>=0?'border-red-500':'border-green-500'}`}><div className="text-xs text-slate-500">總報酬</div><div className={`text-xl font-bold ${totalStats.roi>=0?'text-red-600':'text-green-600'}`}>{fmtPct(totalStats.roi)}</div></Card>
                                         </div>
                                         <Card className="p-4 h-72">
-                                            <div className="flex justify-between items-center mb-4"><div className="font-bold text-slate-700 flex items-center gap-2"><Icon d={ICONS.Chart} size={16}/> 走勢</div><div className="flex bg-slate-100 rounded p-1"><button onClick={()=>setChartMode('value')} className={`px-2 py-1 text-xs rounded ${chartMode==='value'?'bg-white shadow':''}`}>值</button><button onClick={()=>setChartMode('roi')} className={`px-2 py-1 text-xs rounded ${chartMode==='roi'?'bg-white shadow':''}`}>%</button></div></div>
+                                            <div className="flex justify-between items-center mb-4"><div className="font-bold text-slate-700 flex items-center gap-2"><BarChart2 size={16}/> 走勢</div><div className="flex bg-slate-100 rounded p-1"><button onClick={()=>setChartMode('value')} className={`px-2 py-1 text-xs rounded ${chartMode==='value'?'bg-white shadow':''}`}>值</button><button onClick={()=>setChartMode('roi')} className={`px-2 py-1 text-xs rounded ${chartMode==='roi'?'bg-white shadow':''}`}>%</button></div></div>
                                             <div className="flex gap-1 mb-2 overflow-x-auto">{['1M','1Y','3Y','ALL'].map(r=><button key={r} onClick={()=>setTimeRange(r)} className={`px-2 py-1 text-xs rounded border ${timeRange===r?'bg-slate-800 text-white border-slate-800':'border-slate-200 text-slate-500'}`}>{r}</button>)}</div>
                                             <ResponsiveContainer width="100%" height="100%">
                                                 {chartMode === 'value' ? 
-                                                    <ComposedChart data={filteredData}><defs><linearGradient id="cV" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs><XAxis dataKey="date" hide/><YAxis domain={['auto','auto']} hide/><Tooltip formatter={v=>formatCurrency(v)}/><Area type="monotone" dataKey="total" stroke="#3b82f6" fill="url(#cV)" strokeWidth={2}/><Line type="monotone" dataKey="benchmarkVal" stroke="#f97316" strokeDasharray="3 3" dot={false}/></ComposedChart> :
-                                                    <LineChart data={filteredData}><XAxis dataKey="date" hide/><YAxis hide/><Tooltip formatter={v=>formatPercent(v)}/><Line type="monotone" dataKey="userROI" stroke="#ef4444" dot={false} strokeWidth={2}/><Line type="monotone" dataKey="benchmarkROI" stroke="#94a3b8" dot={false}/></LineChart>
+                                                    <ComposedChart data={filteredData}><defs><linearGradient id="cV" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs><XAxis dataKey="date" hide/><YAxis domain={['auto','auto']} hide/><Tooltip formatter={v=>fmtCur(v)}/><Area type="monotone" dataKey="total" stroke="#3b82f6" fill="url(#cV)" strokeWidth={2}/><Line type="monotone" dataKey="benchmarkVal" stroke="#f97316" strokeDasharray="3 3" dot={false}/></ComposedChart> :
+                                                    <LineChart data={filteredData}><XAxis dataKey="date" hide/><YAxis hide/><Tooltip formatter={v=>fmtPct(v)}/><Line type="monotone" dataKey="userROI" stroke="#ef4444" dot={false} strokeWidth={2}/><Line type="monotone" dataKey="benchmarkROI" stroke="#94a3b8" dot={false}/></LineChart>
                                                 }
                                             </ResponsiveContainer>
                                         </Card>
                                         <Card className="p-4">
-                                            <div className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Icon d={ICONS.Pie} size={16}/> 配置</div>
-                                            <div className="h-40"><ResponsiveContainer><PieChart><Pie data={pieData} innerRadius={35} outerRadius={60} dataKey="value"><Tooltip formatter={v=>formatCurrency(v)}/>{pieData.map((e,i)=><Cell key={i} fill={e.color}/>)}</Pie></PieChart></ResponsiveContainer></div>
+                                            <div className="font-bold text-slate-700 mb-4 flex items-center gap-2"><PieIcon size={16}/> 配置</div>
+                                            <div className="h-40"><ResponsiveContainer><PieChart><Pie data={pieData} innerRadius={35} outerRadius={60} dataKey="value"><Tooltip formatter={v=>fmtCur(v)}/>{pieData.map((e,i)=><Cell key={i} fill={e.color}/>)}</Pie></PieChart></ResponsiveContainer></div>
                                             <div className="space-y-2 text-sm">{pieData.map(d=><div key={d.name} className="flex justify-between"><div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full" style={{backgroundColor:d.color}}></span>{d.name}</div><span>{((d.value/totalStats.value)*100).toFixed(1)}%</span></div>)}</div>
                                         </Card>
                                     </div>
@@ -431,16 +341,16 @@
                                         <div className="grid grid-cols-2 gap-3"><Input type="date" value={entryDate} onChange={e=>setEntryDate(e.target.value)} /><Select value={selectedAccount} onChange={e=>setSelectedAccount(e.target.value)} options={accounts.map(a=>({value:a.id,label:a.name}))} /></div>
                                         <div className="bg-slate-50 p-3 rounded border border-slate-100"><Input label="總市值" type="number" value={marketValue} onChange={e=>setMarketValue(e.target.value)} /></div>
                                         <div className="border-t pt-3"><label className="text-xs text-slate-500 mb-2 block">資金流向</label><div className="flex gap-2 mb-2"><button onClick={()=>{setFlowType('none');setInputFlow('')}} className={`flex-1 py-2 text-sm rounded border ${flowType==='none'?'bg-slate-800 text-white':'bg-white'}`}>無</button><button onClick={()=>setFlowType('deposit')} className={`flex-1 py-2 text-sm rounded border ${flowType==='deposit'?'bg-blue-600 text-white':'bg-white'}`}>存入</button><button onClick={()=>setFlowType('withdraw')} className={`flex-1 py-2 text-sm rounded border ${flowType==='withdraw'?'bg-orange-500 text-white':'bg-white'}`}>領出</button></div>{flowType!=='none'&&<Input type="number" placeholder="金額" value={inputFlow} onChange={e=>setInputFlow(e.target.value)}/>}</div>
-                                        <Button onClick={addRec} className="w-full mt-2 text-lg"><Save size={20}/> 儲存</Button>
+                                        <Button onClick={handleAdd} className="w-full mt-2 text-lg"><Save size={20}/> 儲存</Button>
                                     </Card>
                                 )}
 
                                 {activeTab === 'records' && (
                                     <div className="space-y-3 animate-fade-in">
-                                        {sortedRecords.slice().reverse().map(r=>(
+                                        {sortedRecs.slice().reverse().map(r=>(
                                             <div key={r.id} className="bg-white p-3 rounded-lg border flex justify-between items-center shadow-sm">
                                                 <div><div className="text-sm font-bold text-slate-700">{r.date}</div><div className="text-xs text-slate-400 mt-1"><span className="bg-slate-100 px-1 rounded">{accounts.find(a=>a.id===r.accountId)?.name}</span> {r.cashFlow!==0 && <span className={r.cashFlow>0?'text-blue-500':'text-orange-500'}>{r.cashFlow>0?'+':''}{r.cashFlow}</span>}</div></div>
-                                                <div className="flex items-center gap-3"><div className="font-mono">{formatCurrency(r.marketValue)}</div><button onClick={()=>delRec(r.id)} className="text-slate-300 hover:text-red-500"><Icon d={ICONS.Trash} size={18}/></button></div>
+                                                <div className="flex items-center gap-3"><div className="font-mono">{fmtCur(r.marketValue)}</div><button onClick={()=>setRecords(p=>p.filter(x=>x.id!==r.id))} className="text-slate-300 hover:text-red-500"><Trash2 size={18}/></button></div>
                                             </div>
                                         ))}
                                         {records.length===0 && <div className="text-center text-slate-400 py-10">尚無紀錄</div>}
@@ -450,10 +360,10 @@
                                 {activeTab === 'settings' && (
                                     <div className="space-y-4 animate-fade-in">
                                         <Card className="p-4 flex justify-between items-center"><div className="flex gap-3 items-center"><Smartphone className="text-blue-600"/><div><div className="font-bold">App 模式</div><div className="text-xs text-slate-500">安裝說明</div></div></div><Button size="sm" variant="outline" onClick={()=>setModalType('install')}>查看</Button></Card>
-                                        <Card className="p-4 space-y-3"><h3 className="font-bold flex gap-2 items-center"><Database size={18}/> 資料</h3><div className="flex gap-2"><Button onClick={exportJSON} variant="outline" className="flex-1"><Download size={16}/> 備份</Button><div className="flex-1 relative"><input type="file" accept=".json" onChange={e=>{setImportFile(e.target.files[0]); setModalType('import');}} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/><Button variant="outline" className="w-full"><Upload size={16}/> 還原</Button></div></div><Button onClick={exportCSV} variant="ghost" className="w-full text-emerald-600 border border-emerald-100 bg-emerald-50">匯出 Excel (CSV)</Button></Card>
-                                        <Card className="p-4 border-l-4 border-amber-400 flex justify-between items-center"><div><div className="font-bold">測試</div><div className="text-xs text-slate-500">清除或生成</div></div><div className="flex gap-2"><Button onClick={()=>setModalType('demo')} variant="warning" size="sm">生成</Button><Button onClick={()=>setModalType('clear')} variant="danger" size="sm">清空</Button></div></Card>
-                                        <Card className="p-4"><h3 className="font-bold mb-2">AI Key</h3><Input type="password" value={settings.apiKey} onChange={e=>setSettings({...settings,apiKey:e.target.value})} placeholder="貼上 API Key" /></Card>
-                                        <Card className="p-4 space-y-2"><h3 className="font-bold">帳號</h3>{accounts.map(a=><div key={a.id} className="flex gap-2"><input type="color" value={a.color} onChange={e=>{const n=[...accounts];n.find(x=>x.id===a.id).color=e.target.value;setAccounts(n)}} className="w-8 h-8 rounded border-none"/><Input value={a.name} onChange={e=>{const n=[...accounts];n.find(x=>x.id===a.id).name=e.target.value;setAccounts(n)}} /><button onClick={()=>{if(accounts.length>1){setAccounts(accounts.filter(x=>x.id!==a.id));setRecords(records.filter(r=>r.accountId!==a.id))}}} className="text-slate-300"><Icon d={ICONS.Trash}/></button></div>)}<Button onClick={()=>{setAccounts([...accounts, {id:Date.now(), name:'新帳號', color:'#64748b'}])}} variant="secondary" className="w-full">新增</Button></Card>
+                                        <Card className="p-4 space-y-3"><h3 className="font-bold flex gap-2 items-center"><Database size={18}/> 資料</h3><div className="flex gap-2"><Button onClick={exportJSON} variant="outline" className="flex-1"><Download size={16}/> 備份</Button><div className="flex-1 relative"><input type="file" accept=".json" onChange={e=>{setImportFile(e.target.files[0]);setModalType('import');}} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/><Button variant="outline" className="w-full"><Upload size={16}/> 還原</Button></div></div></Card>
+                                        <Card className="p-4 border-l-4 border-amber-400 flex justify-between items-center"><div><div className="font-bold">測試</div><div className="text-xs text-slate-500">生成模擬</div></div><div className="flex gap-2"><Button onClick={()=>setModalType('demo')} variant="warning" size="sm">生成</Button><Button onClick={()=>setModalType('clear')} variant="danger" size="sm">清空</Button></div></Card>
+                                        <Card className="p-4"><h3 className="font-bold mb-2">AI Key</h3><Input type="password" value={settings.apiKey} onChange={e=>setSettings({...settings,apiKey:e.target.value})} placeholder="貼上 Key" /></Card>
+                                        <Card className="p-4 space-y-2"><h3 className="font-bold">帳號</h3>{accounts.map(a=><div key={a.id} className="flex gap-2"><input type="color" value={a.color} onChange={e=>{const n=[...accounts];n.find(x=>x.id===a.id).color=e.target.value;setAccounts(n)}} className="w-8 h-8 rounded border-none"/><Input value={a.name} onChange={e=>{const n=[...accounts];n.find(x=>x.id===a.id).name=e.target.value;setAccounts(n)}} /><button onClick={()=>{if(accounts.length>1){setAccounts(accounts.filter(x=>x.id!==a.id));setRecords(records.filter(r=>r.accountId!==a.id))}}} className="text-slate-300"><Trash2/></button></div>)}<Button onClick={()=>{setAccounts([...accounts, {id:Date.now(), name:'新帳號', color:'#64748b'}])}} variant="secondary" className="w-full">新增</Button></Card>
                                     </div>
                                 )}
                             </div>
