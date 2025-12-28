@@ -45,7 +45,7 @@
     <script type="text/babel">
         (function() {
             try {
-                const APP_VERSION = "v1.9.0";
+                const APP_VERSION = "v1.9.1";
                 const { useState, useEffect, useMemo, useRef } = React;
                 const R = window.Recharts || {};
                 const { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell, ReferenceLine } = R;
@@ -269,6 +269,7 @@
 
                     const pieData = useMemo(()=>Object.values(accStats).filter(s=>s.currentValue>0).map((s,i)=>({name:s.name,value:s.currentValue,color:s.color||PIE_COLORS[i%PIE_COLORS.length]})),[accStats]);
 
+                    // --- 圖表數據處理核心 (修正 ROI 邏輯) ---
                     const chartData = useMemo(()=>{
                         if(sortedRecs.length===0) return [];
                         const dates=[...new Set(sortedRecs.map(r=>r.date))].sort();
@@ -278,25 +279,50 @@
                         const baseBenchmarkVal = (firstRec && parseFloat(firstRec.benchmarkValue)) || getTaiexValue(firstDate) || getTaiexEstimate(firstDate);
                         
                         dates.forEach((d)=>{
-                            let tv=0, ti=0;
+                            let tv=0;
+                            // Split Deposits & Withdrawals tracking
+                            let cumDeposits = 0;
+                            let cumWithdrawals = 0;
                             let hasData = false;
+                            
                             accounts.forEach(a=>{
                                 const rs=sortedRecs.filter(r=>r.accountId===a.id && r.date<=d);
                                 if(rs.length>0) {
                                     hasData = true;
-                                    const l=rs[rs.length-1];
-                                    tv+=parseFloat(l.marketValue);
-                                    const accInit = parseFloat(rs[0].marketValue) - parseFloat(rs[0].cashFlow);
-                                    const flows = rs.reduce((s,r)=>s+parseFloat(r.cashFlow),0);
-                                    ti += (accInit + flows);
+                                    const l=rs[rs.length-1]; // Last record of the day
+                                    tv += parseFloat(l.marketValue);
+                                    
+                                    // Process all records up to date d for this account to sum flows correctly
+                                    // But wait, sortedRecs is already flat.
+                                    // We need to sum flows for this account up to date d.
+                                    const allAccRecs = sortedRecs.filter(r=>r.accountId===a.id && r.date<=d);
+                                    
+                                    // Initial "Deposit" from the very first record (MarketValue - CashFlow)
+                                    // Logic: If first record is MV=100, Flow=0 -> Init=100 (Deposit).
+                                    // If MV=100, Flow=100 -> Init=0 (Flow covers it).
+                                    const firstAccRec = allAccRecs[0];
+                                    const initPrincipal = parseFloat(firstAccRec.marketValue) - parseFloat(firstAccRec.cashFlow);
+                                    if(initPrincipal > 0) cumDeposits += initPrincipal;
+
+                                    allAccRecs.forEach(r => {
+                                        const cf = parseFloat(r.cashFlow);
+                                        if (cf > 0) cumDeposits += cf;
+                                        if (cf < 0) cumWithdrawals += Math.abs(cf);
+                                    });
                                 }
                             });
-                            const pt = {date:d, total:tv, userROI:0};
+
+                            const pt = {date:d, total:tv, userROI:0, netInvested: (cumDeposits - cumWithdrawals)};
+                            
                             const bRec = sortedRecs.filter(r=>r.date<=d && r.benchmarkValue).pop();
                             let bVal = bRec ? parseFloat(bRec.benchmarkValue) : (getTaiexValue(d) || getTaiexEstimate(d));
                             pt.benchmarkVal = bVal; 
-                            if (hasData) {
-                                pt.userROI = ti ? ((tv - ti) / ti) * 100 : 0;
+                            
+                            if (hasData && cumDeposits > 0) {
+                                // Formula: (CurrentMV + Withdrawals - Deposits) / Deposits
+                                const totalGain = tv + cumWithdrawals - cumDeposits;
+                                pt.userROI = (totalGain / cumDeposits) * 100;
+                                
                                 if (baseBenchmarkVal && bVal) {
                                     pt.benchmarkROI = ((bVal - baseBenchmarkVal) / baseBenchmarkVal) * 100;
                                 } else {
@@ -329,7 +355,6 @@
                     const handleAdd = () => {
                         if(!entryDate||!selectedAccount) return showToast("請填寫日期與帳號");
                         
-                        // Validation logic split by type
                         if(inputType === 'balance' && !marketValue) return showToast("請輸入總市值");
                         if(inputType === 'flow' && !inputFlow) return showToast("請輸入存提金額");
 
@@ -337,32 +362,22 @@
                         let finalCF = 0;
                         const bVal = benchmarkInput ? parseFloat(benchmarkInput) : (getTaiexValue(entryDate) || getTaiexEstimate(entryDate));
 
-                        // Find existing record for this date/account
                         const existingRecIndex = records.findIndex(r => r.date === entryDate && r.accountId === selectedAccount);
                         let existingRec = existingRecIndex >= 0 ? records[existingRecIndex] : null;
 
                         if (inputType === 'balance') {
-                            // Update Asset Value, preserve existing flow if any
                             finalMV = parseFloat(marketValue);
                             finalCF = existingRec ? existingRec.cashFlow : 0;
                         } else {
-                            // Update Flow, Auto-calculate Asset Value if needed
                             const amt = parseFloat(inputFlow);
                             finalCF = flowType === 'deposit' ? Math.abs(amt) : -Math.abs(amt);
                             
                             if (existingRec) {
-                                // If record exists, keep existing MV? Or adjust it? 
-                                // User request: "Separate". So we usually assume user updates MV separately.
-                                // BUT, if we don't adjust MV, the net worth drops instantly on withdrawal, which is correct.
-                                // However, if the user hasn't updated MV yet, we should probably keep the old MV?
-                                // Let's keep it simple: If only flow is added, we prefer to KEEP existing MV if present.
-                                // If no existing MV (new record), we must derive it from previous day.
                                 finalMV = existingRec.marketValue; 
                             } else {
-                                // No record today. Find previous record to derive MV
                                 const prevRec = sortedRecs.filter(r => r.accountId === selectedAccount && r.date < entryDate).pop();
                                 const prevMV = prevRec ? parseFloat(prevRec.marketValue) : 0;
-                                finalMV = prevMV + finalCF; // Auto-adjust MV based on flow
+                                finalMV = prevMV + finalCF; 
                                 showToast(`已自動推算市值: ${finalMV}`);
                             }
                         }
@@ -655,6 +670,8 @@
                                                             <Tooltip formatter={(v, n)=> n.includes('指數') ? v : fmtCur(v)} labelStyle={{color:'#333'}} />
                                                             <Legend wrapperStyle={{fontSize:'10px', paddingTop:'5px'}}/>
                                                             <Area yAxisId="left" type="monotone" dataKey="total" name="總市值 (左)" stroke="#3b82f6" fill="url(#cV)" strokeWidth={2}/>
+                                                            {/* 成本線 (Net Invested Line) */}
+                                                            <Line yAxisId="left" type="monotone" dataKey="netInvested" name="淨投入成本" stroke="#94a3b8" strokeDasharray="3 3" dot={false} strokeWidth={1} />
                                                             <Line yAxisId="right" type="monotone" dataKey="benchmarkVal" name="台股指數 (右)" stroke="#f97316" strokeDasharray="3 3" dot={false} strokeWidth={2} connectNulls={true} />
                                                         </ComposedChart>
                                                     ) : (
