@@ -45,7 +45,7 @@
     <script type="text/babel">
         (function() {
             try {
-                const APP_VERSION = "v1.9.1";
+                const APP_VERSION = "v2.0.0";
                 const { useState, useEffect, useMemo, useRef } = React;
                 const R = window.Recharts || {};
                 const { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell, ReferenceLine } = R;
@@ -72,6 +72,45 @@
                     if (year > 2025) return 28000;
                     return 20000; 
                 };
+
+                // --- XIRR 核心演算法 (Newton-Raphson) ---
+                function calculateXIRR(values, dates, guess = 0.1) {
+                    if (values.length !== dates.length || values.length === 0) return 0;
+                    
+                    // 檢查是否有正負現金流
+                    let hasPos = false, hasNeg = false;
+                    for (let v of values) {
+                        if (v > 0) hasPos = true;
+                        if (v < 0) hasNeg = true;
+                    }
+                    if (!hasPos || !hasNeg) return 0;
+
+                    const tol = 1e-6; // 誤差容許值
+                    const maxIter = 100; // 最大迭代次數
+                    let x0 = guess;
+                    const t0 = new Date(dates[0]).getTime();
+                    const durs = dates.map(d => (new Date(d).getTime() - t0) / 31536000000); // 轉換為年
+
+                    for (let i = 0; i < maxIter; i++) {
+                        let fValue = 0;
+                        let fDerivative = 0;
+                        for (let j = 0; j < values.length; j++) {
+                            const v = values[j];
+                            const d = durs[j];
+                            const base = 1 + x0;
+                            if (base <= 0) { x0 = 0.01; break; } // 防止負基數
+                            fValue += v / Math.pow(base, d);
+                            fDerivative += -d * v / Math.pow(base, d + 1);
+                        }
+                        
+                        if (Math.abs(fValue) < tol) return x0;
+                        if (Math.abs(fDerivative) < tol) break;
+                        const newX = x0 - fValue / fDerivative;
+                        if (Math.abs(newX - x0) < tol) return newX;
+                        x0 = newX;
+                    }
+                    return x0; // 回傳小數 (例如 0.15 代表 15%)
+                }
 
                 // --- 圖示系統 ---
                 const ICON_PATHS = {
@@ -253,86 +292,216 @@
                             const rs=sortedRecs.filter(r=>r.accountId===a.id);
                             if(rs.length===0) return;
                             const f=rs[0];
-                            const init=parseFloat(f.marketValue)-parseFloat(f.cashFlow);
                             const flows=rs.reduce((s,r)=>s+parseFloat(r.cashFlow),0);
-                            const inv=init+flows;
                             const cur=parseFloat(rs[rs.length-1].marketValue);
-                            res[a.id]={...res[a.id], currentValue:cur, totalInvested:inv, roi:inv?((cur-inv)/inv)*100:0};
+                            // 總投入 = (sum of all negative cashflows abs)
+                            // 這裡簡化: 假設初始值也是投入. 
+                            // 更好的方式: 遍歷所有紀錄, 累加所有負值流向. 
+                            // 初始餘額 = 首筆 (MarketValue - CashFlow). 如果 > 0 視為初始投入.
+                            const init = parseFloat(f.marketValue) - parseFloat(f.cashFlow);
+                            let totalDep = (init > 0) ? init : 0;
+                            rs.forEach(r => {
+                                if (r.cashFlow > 0) totalDep += r.cashFlow; // Deposit is + in our new logic? Wait.
+                                // In new logic: Deposit is +CF, Withdrawal is -CF? 
+                                // Let's check handleAdd: flowType==='deposit' ? abs : -abs. Yes.
+                                // So Deposit is positive.
+                            });
+                            
+                            // 總獲利 = (現值 + 總領回) - 總投入
+                            // 總領回 = sum of abs(negative flows)
+                            let totalWith = 0;
+                            rs.forEach(r => { if (r.cashFlow < 0) totalWith += Math.abs(r.cashFlow); });
+                            
+                            // ROI = Profit / Invested
+                            const profit = (cur + totalWith) - totalDep;
+                            const roi = totalDep ? (profit / totalDep) * 100 : 0;
+
+                            res[a.id]={...res[a.id], currentValue:cur, totalInvested:totalDep, roi:roi, profit: profit};
                         });
                         return res;
                     },[accounts,sortedRecs]);
 
                     const totalStats = useMemo(()=>{
-                        let v=0,i=0; Object.values(accStats).forEach(s=>{v+=s.currentValue;i+=s.totalInvested;});
-                        return {value:v, invested:i, pl:v-i, roi:i?((v-i)/i)*100:0};
+                        let v=0, i=0, p=0; 
+                        Object.values(accStats).forEach(s=>{
+                            v+=s.currentValue;
+                            i+=s.totalInvested;
+                            p+=s.profit;
+                        });
+                        return {value:v, invested:i, pl:p, roi:i?(p/i)*100:0};
                     },[accStats]);
 
                     const pieData = useMemo(()=>Object.values(accStats).filter(s=>s.currentValue>0).map((s,i)=>({name:s.name,value:s.currentValue,color:s.color||PIE_COLORS[i%PIE_COLORS.length]})),[accStats]);
 
-                    // --- 圖表數據處理核心 (修正 ROI 邏輯) ---
+                    // --- 圖表數據處理核心 (XIRR + 獲利金額 PK) ---
                     const chartData = useMemo(()=>{
                         if(sortedRecs.length===0) return [];
                         const dates=[...new Set(sortedRecs.map(r=>r.date))].sort();
                         const res=[];
-                        const firstDate = dates[0];
-                        const firstRec = sortedRecs.find(r => r.date === firstDate);
-                        const baseBenchmarkVal = (firstRec && parseFloat(firstRec.benchmarkValue)) || getTaiexValue(firstDate) || getTaiexEstimate(firstDate);
                         
+                        // 計算「大盤模擬」
+                        // 假設每一筆現金流都拿去買大盤，現在值多少？
+                        // 1. 初始: 每一帳戶的第一筆 (MV - CF) 視為買入
+                        // 2. 之後: 每一筆 CF，若是 + 則買入，若是 - 則賣出
+                        
+                        // 我們需要維護一個 "Simulated Index Units"
+                        let indexUnits = 0;
+                        
+                        // 預處理：找出每個帳戶的起始點，加入初始資金
+                        const firstDate = dates[0];
+                        const startIdxVal = getTaiexValue(firstDate) || getTaiexEstimate(firstDate) || 10000;
+                        
+                        accounts.forEach(a => {
+                            const rs = sortedRecs.filter(r => r.accountId === a.id && r.date === firstDate);
+                            if(rs.length > 0) {
+                                const f = rs[0];
+                                const init = parseFloat(f.marketValue) - parseFloat(f.cashFlow); 
+                                if (init > 0) {
+                                    indexUnits += (init / startIdxVal);
+                                }
+                            }
+                        });
+
+                        // 累積數據
+                        let cumWith = 0; // 累計領回 (User)
+                        let cumDep = 0;  // 累計投入 (User)
+                        
+                        // 用於計算大盤模擬的累計領回 (假設賣出大盤拿到現金)
+                        let benchmarkCumWith = 0; 
+                        let benchmarkCumDep = 0; // 其實等於 cumDep
+
+                        // 處理每日數據
                         dates.forEach((d)=>{
-                            let tv=0;
-                            // Split Deposits & Withdrawals tracking
-                            let cumDeposits = 0;
-                            let cumWithdrawals = 0;
-                            let hasData = false;
+                            let userMV = 0;
+                            let dailyFlow = 0; // 當日總現金流 (所有帳戶)
                             
+                            // 取得當日大盤
+                            const bRec = sortedRecs.filter(r=>r.date<=d && r.benchmarkValue).pop();
+                            let idxVal = bRec ? parseFloat(bRec.benchmarkValue) : (getTaiexValue(d) || getTaiexEstimate(d));
+                            if (!idxVal) idxVal = startIdxVal; // 防呆
+
                             accounts.forEach(a=>{
                                 const rs=sortedRecs.filter(r=>r.accountId===a.id && r.date<=d);
                                 if(rs.length>0) {
-                                    hasData = true;
-                                    const l=rs[rs.length-1]; // Last record of the day
-                                    tv += parseFloat(l.marketValue);
+                                    const l=rs[rs.length-1];
+                                    userMV += parseFloat(l.marketValue);
                                     
-                                    // Process all records up to date d for this account to sum flows correctly
-                                    // But wait, sortedRecs is already flat.
-                                    // We need to sum flows for this account up to date d.
-                                    const allAccRecs = sortedRecs.filter(r=>r.accountId===a.id && r.date<=d);
-                                    
-                                    // Initial "Deposit" from the very first record (MarketValue - CashFlow)
-                                    // Logic: If first record is MV=100, Flow=0 -> Init=100 (Deposit).
-                                    // If MV=100, Flow=100 -> Init=0 (Flow covers it).
-                                    const firstAccRec = allAccRecs[0];
-                                    const initPrincipal = parseFloat(firstAccRec.marketValue) - parseFloat(firstAccRec.cashFlow);
-                                    if(initPrincipal > 0) cumDeposits += initPrincipal;
-
-                                    allAccRecs.forEach(r => {
-                                        const cf = parseFloat(r.cashFlow);
-                                        if (cf > 0) cumDeposits += cf;
-                                        if (cf < 0) cumWithdrawals += Math.abs(cf);
+                                    // 檢查當日是否有現金流 (只看當天)
+                                    const todays = records.filter(r => r.accountId === a.id && r.date === d);
+                                    todays.forEach(tr => {
+                                        // 這裡有個 bug: sortedRecs 是去重後的嗎？ 不，sortedRecs 是所有紀錄排序
+                                        // 但上面 map dates 是 unique dates
+                                        // 我們需要累加「截至今日」的所有流向嗎？
+                                        // 不，這裡要即時模擬買入大盤，所以要依序處理
                                     });
                                 }
                             });
-
-                            const pt = {date:d, total:tv, userROI:0, netInvested: (cumDeposits - cumWithdrawals)};
                             
-                            const bRec = sortedRecs.filter(r=>r.date<=d && r.benchmarkValue).pop();
-                            let bVal = bRec ? parseFloat(bRec.benchmarkValue) : (getTaiexValue(d) || getTaiexEstimate(d));
-                            pt.benchmarkVal = bVal; 
-                            
-                            if (hasData && cumDeposits > 0) {
-                                // Formula: (CurrentMV + Withdrawals - Deposits) / Deposits
-                                const totalGain = tv + cumWithdrawals - cumDeposits;
-                                pt.userROI = (totalGain / cumDeposits) * 100;
+                            // 重來：依序遍歷 dates 處理流向
+                            // 找出發生在 date d 的所有交易
+                            const todaysRecs = records.filter(r => r.date === d);
+                            todaysRecs.forEach(r => {
+                                const cf = parseFloat(r.cashFlow);
+                                // User Stats
+                                if (cf > 0) cumDep += cf;
+                                if (cf < 0) cumWith += Math.abs(cf);
                                 
-                                if (baseBenchmarkVal && bVal) {
-                                    pt.benchmarkROI = ((bVal - baseBenchmarkVal) / baseBenchmarkVal) * 100;
-                                } else {
-                                    pt.benchmarkROI = 0;
+                                // Benchmark Simulation
+                                // 買入/賣出指數
+                                // CF > 0 (Deposit): Buy index
+                                // CF < 0 (Withdraw): Sell index
+                                if (cf !== 0) {
+                                    const units = cf / idxVal; 
+                                    // 存入 100 -> 買入 units (units 增加)
+                                    // 領出 100 (cf=-100) -> 賣出 units (units 減少)
+                                    indexUnits += units;
+                                    
+                                    // 修正 Benchmark 獲利公式：
+                                    // 它的「已領回」等於 User 的已領回 (因為我們假設同樣金額進出)
+                                    // 它的「總投入」等於 User 的總投入
                                 }
-                            }
+                            });
+
+                            // 計算當日 User 獲利
+                            // Profit = (MV + CumWithdraw) - CumDeposit
+                            // 注意：CumDeposit 包含初始資金嗎？ 上面只加了 CF。
+                            // 我們需要加上初始資金
+                            let totalInvested = cumDep;
+                            accounts.forEach(a => {
+                                const fr = sortedRecs.filter(r => r.accountId === a.id)[0];
+                                if (fr) {
+                                    const init = parseFloat(fr.marketValue) - parseFloat(fr.cashFlow);
+                                    if(init > 0) totalInvested += init;
+                                }
+                            });
+                            
+                            const userProfit = (userMV + cumWith) - totalInvested;
+                            
+                            // 計算當日 Benchmark 獲利
+                            // Bench MV = indexUnits * idxVal
+                            // Bench Profit = (BenchMV + CumWithdraw) - TotalInvested
+                            const benchMV = indexUnits * idxVal;
+                            const benchProfit = (benchMV + cumWith) - totalInvested;
+
+                            const pt = {
+                                date: d, 
+                                userProfit: userProfit,
+                                benchProfit: benchProfit,
+                                total: userMV,
+                                benchmarkVal: idxVal
+                            };
                             res.push(pt);
                         });
+                        
                         return res;
                     },[sortedRecs, accounts, benchmarkData]); 
+
+                    // 計算總體 XIRR
+                    const portfolioXIRR = useMemo(() => {
+                        // 構建現金流: [date, amount]
+                        // 1. 初始投入 (視為負)
+                        // 2. 中途存入 (視為負)
+                        // 3. 中途領出 (視為正)
+                        // 4. 期末市值 (視為正)
+                        const flows = [];
+                        const dates = [];
+                        
+                        // 找出所有帳戶的起始
+                        accounts.forEach(a => {
+                            const rs = sortedRecs.filter(r => r.accountId === a.id);
+                            if(rs.length > 0) {
+                                const f = rs[0];
+                                const init = parseFloat(f.marketValue) - parseFloat(f.cashFlow);
+                                if(init > 0) {
+                                    flows.push(-init);
+                                    dates.push(f.date);
+                                }
+                            }
+                        });
+                        
+                        // 所有中間流向
+                        records.forEach(r => {
+                            const cf = parseFloat(r.cashFlow);
+                            if(cf !== 0) {
+                                // Deposit (User inputs +) -> XIRR Outflow (-)
+                                // Withdraw (User inputs -) -> XIRR Inflow (+)
+                                // 但我的邏輯是: flowType='deposit' => cashFlow = +abs
+                                // flowType='withdraw' => cashFlow = -abs
+                                // 所以: deposit (+100) -> 應該變成 -100
+                                // withdraw (-50) -> 應該變成 +50
+                                flows.push(-cf); 
+                                dates.push(r.date);
+                            }
+                        });
+                        
+                        // 期末市值
+                        if (totalStats.value > 0) {
+                            flows.push(totalStats.value);
+                            dates.push(new Date().toISOString().split('T')[0]); // Today
+                        }
+                        
+                        return calculateXIRR(flows, dates);
+                    }, [records, totalStats, accounts]);
 
                     const filteredData = useMemo(()=>{
                         if(chartData.length===0 || timeRange==='ALL') return chartData;
@@ -345,12 +514,6 @@
                         else if(timeRange==='5Y') cut.setFullYear(last.getFullYear()-5);
                         return chartData.filter(d=>new Date(d.date)>=cut);
                     },[chartData,timeRange]);
-
-                    const alphaValue = useMemo(() => {
-                        if (chartData.length === 0) return 0;
-                        const lastPt = chartData[chartData.length - 1];
-                        return (lastPt.userROI || 0) - (lastPt.benchmarkROI || 0);
-                    }, [chartData]);
 
                     const handleAdd = () => {
                         if(!entryDate||!selectedAccount) return showToast("請填寫日期與帳號");
@@ -370,6 +533,7 @@
                             finalCF = existingRec ? existingRec.cashFlow : 0;
                         } else {
                             const amt = parseFloat(inputFlow);
+                            // Deposit = +, Withdraw = -
                             finalCF = flowType === 'deposit' ? Math.abs(amt) : -Math.abs(amt);
                             
                             if (existingRec) {
@@ -377,6 +541,8 @@
                             } else {
                                 const prevRec = sortedRecs.filter(r => r.accountId === selectedAccount && r.date < entryDate).pop();
                                 const prevMV = prevRec ? parseFloat(prevRec.marketValue) : 0;
+                                // 存入: 市值應該增加 (prev + amt)
+                                // 領出: 市值應該減少 (prev - amt) -> (prev + (-amt))
                                 finalMV = prevMV + finalCF; 
                                 showToast(`已自動推算市值: ${finalMV}`);
                             }
@@ -645,15 +811,15 @@
                                     <div className="space-y-4 animate-fade-in pb-20">
                                         {showBackupAlert && <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg flex justify-between items-center text-sm text-amber-800"><span className="flex items-center gap-2"><AlertTriangle size={16}/> 建議備份</span><Button onClick={exportJSON} size="sm" variant="warning">備份</Button></div>}
                                         <div className="grid grid-cols-2 gap-4">
-                                            <Card className="p-4 border-l-4 border-blue-500"><div className="text-xs text-slate-500">總市值</div><div className="text-xl font-bold text-slate-800">{fmtCur(totalStats.value)}</div></Card>
-                                            <Card className={`p-4 border-l-4 ${totalStats.roi>=0?'border-red-500':'border-green-500'}`}><div className="text-xs text-slate-500">總報酬</div><div className={`text-xl font-bold ${totalStats.roi>=0?'text-red-600':'text-green-600'}`}>{fmtPct(totalStats.roi)}</div></Card>
+                                            <Card className="p-4 border-l-4 border-blue-500"><div className="text-xs text-slate-500">總獲利 (金額)</div><div className="text-xl font-bold text-slate-800">{fmtCur(totalStats.pl)}</div></Card>
+                                            <Card className={`p-4 border-l-4 ${portfolioXIRR>=0?'border-red-500':'border-green-500'}`}><div className="text-xs text-slate-500">年化報酬 (XIRR)</div><div className={`text-xl font-bold ${portfolioXIRR>=0?'text-red-600':'text-green-600'}`}>{(portfolioXIRR*100).toFixed(2)}%</div></Card>
                                         </div>
                                         
                                         <Card className="p-4 h-80 flex flex-col">
                                             <div className="flex justify-between items-center mb-4">
                                                 <div className="flex bg-slate-100 rounded p-1">
                                                     <button onClick={()=>setDashboardMode('assets')} className={`px-3 py-1 text-xs rounded font-medium transition-all ${dashboardMode==='assets'?'bg-white shadow text-blue-600':'text-slate-500'}`}>資產走勢</button>
-                                                    <button onClick={()=>setDashboardMode('performance')} className={`px-3 py-1 text-xs rounded font-medium transition-all ${dashboardMode==='performance'?'bg-white shadow text-red-600':'text-slate-500'}`}>績效 PK</button>
+                                                    <button onClick={()=>setDashboardMode('performance')} className={`px-3 py-1 text-xs rounded font-medium transition-all ${dashboardMode==='performance'?'bg-white shadow text-red-600':'text-slate-500'}`}>獲利 PK</button>
                                                 </div>
                                                 <div className="flex gap-1 overflow-x-auto scrollbar-hide">{['1M','1Y','3Y','ALL'].map(r=><button key={r} onClick={()=>setTimeRange(r)} className={`px-2 py-1 text-xs rounded border ${timeRange===r?'bg-slate-800 text-white border-slate-800':'border-slate-200 text-slate-500'}`}>{r}</button>)}</div>
                                             </div>
@@ -664,26 +830,24 @@
                                                         <ComposedChart data={filteredData}>
                                                             <defs><linearGradient id="cV" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
                                                             <XAxis dataKey="date" hide={false} tick={{fontSize: 10}} tickFormatter={fmtDateAxis} minTickGap={30} />
-                                                            {/* 智慧刻度 (Smart Scale) - 自動抓 min max，不從 0 開始 */}
+                                                            {/* 智慧刻度 */}
                                                             <YAxis yAxisId="left" orientation="left" hide={false} width={40} tick={{fontSize: 9}} tickFormatter={fmtAxis} domain={['auto', 'auto']} />
                                                             <YAxis yAxisId="right" orientation="right" hide={false} width={40} tick={{fontSize: 9, fill: '#f97316'}} domain={['auto', 'auto']} />
                                                             <Tooltip formatter={(v, n)=> n.includes('指數') ? v : fmtCur(v)} labelStyle={{color:'#333'}} />
                                                             <Legend wrapperStyle={{fontSize:'10px', paddingTop:'5px'}}/>
                                                             <Area yAxisId="left" type="monotone" dataKey="total" name="總市值 (左)" stroke="#3b82f6" fill="url(#cV)" strokeWidth={2}/>
-                                                            {/* 成本線 (Net Invested Line) */}
-                                                            <Line yAxisId="left" type="monotone" dataKey="netInvested" name="淨投入成本" stroke="#94a3b8" strokeDasharray="3 3" dot={false} strokeWidth={1} />
                                                             <Line yAxisId="right" type="monotone" dataKey="benchmarkVal" name="台股指數 (右)" stroke="#f97316" strokeDasharray="3 3" dot={false} strokeWidth={2} connectNulls={true} />
                                                         </ComposedChart>
                                                     ) : (
                                                         <LineChart data={filteredData}>
                                                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
                                                             <XAxis dataKey="date" hide={false} tick={{fontSize: 10}} tickFormatter={fmtDateAxis} minTickGap={30} />
-                                                            <YAxis hide={false} width={35} tick={{fontSize: 9}} tickFormatter={(v)=>`${v.toFixed(0)}%`} domain={['auto', 'auto']} />
-                                                            <Tooltip formatter={(v)=>fmtPct(v)} labelStyle={{color:'#333'}} />
+                                                            <YAxis hide={false} width={40} tick={{fontSize: 9}} tickFormatter={fmtAxis} domain={['auto', 'auto']} />
+                                                            <Tooltip formatter={(v)=>fmtCur(v)} labelStyle={{color:'#333'}} />
                                                             <Legend wrapperStyle={{fontSize:'10px', paddingTop:'5px'}}/>
                                                             <ReferenceLine y={0} stroke="#94a3b8" />
-                                                            <Line type="monotone" dataKey="userROI" name="個人報酬率" stroke="#ef4444" strokeWidth={2} dot={false} connectNulls={true} />
-                                                            <Line type="monotone" dataKey="benchmarkROI" name="大盤報酬率" stroke="#64748b" strokeWidth={2} dot={false} strokeDasharray="5 5" connectNulls={true} />
+                                                            <Line type="monotone" dataKey="userProfit" name="我的獲利 ($)" stroke="#ef4444" strokeWidth={2} dot={false} connectNulls={true} />
+                                                            <Line type="monotone" dataKey="benchProfit" name="大盤模擬獲利 ($)" stroke="#64748b" strokeWidth={2} dot={false} strokeDasharray="5 5" connectNulls={true} />
                                                         </LineChart>
                                                     )}
                                                 </ResponsiveContainer>
@@ -692,12 +856,12 @@
                                             {dashboardMode === 'performance' && (
                                                 <div className="flex justify-between text-xs mt-3 pt-3 border-t border-slate-100">
                                                     <div className="text-center flex-1 border-r">
-                                                        <div className="text-slate-400">超額報酬 (Alpha)</div>
-                                                        <div className={`font-bold ${alphaValue>=0?'text-red-500':'text-green-500'}`}>{fmtPct(alphaValue)}</div>
+                                                        <div className="text-slate-400">總獲利 (Abs)</div>
+                                                        <div className={`font-bold ${totalStats.pl>=0?'text-red-500':'text-green-500'}`}>{fmtCur(totalStats.pl)}</div>
                                                     </div>
                                                     <div className="text-center flex-1">
-                                                        <div className="text-slate-400">大盤報酬</div>
-                                                        <div className="font-bold text-slate-700">{chartData.length>0 ? fmtPct(chartData[chartData.length-1].benchmarkROI || 0) : '0%'}</div>
+                                                        <div className="text-slate-400">大盤模擬獲利</div>
+                                                        <div className="font-bold text-slate-700">{chartData.length>0 ? fmtCur(chartData[chartData.length-1].benchProfit || 0) : 0}</div>
                                                     </div>
                                                 </div>
                                             )}
